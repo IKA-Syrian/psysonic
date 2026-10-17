@@ -382,6 +382,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * With an HTTP or HTTPS proxy set in the system network settings, the library sync, covers and streaming sent their requests through that proxy — on macOS also for servers listed under **Bypass proxy settings for these Hosts & Domains** — and failed with "no bound session" or "error sending request". Psysonic no longer uses the system proxy settings, as up to 1.53.
 * Root cause: a dependency update in 1.54.0 made the app read the system proxy settings, but on macOS without the list of hosts to bypass.
 
+### Orbit labels in Polish and Romanian are corrected
+
+**By [@Jah-yee](https://github.com/Jah-yee), PR [#1758](https://github.com/Psysonic/psysonic/pull/1758)**
+
+* Three Orbit labels in Polish and Romanian had spelling mistakes, and the Polish song menu entry for adding a song to the session read as "add an Orbit session".
+
 ### Screen readers name the back button in the narrow Now Playing view
 
 **By [@Psychotoxical](https://github.com/Psychotoxical), PR [#1763](https://github.com/Psysonic/psysonic/pull/1763)**
