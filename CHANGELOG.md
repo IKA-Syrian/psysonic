@@ -389,6 +389,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * When the server splits one album into two (for example because of a stray track in a sibling folder), the album page offered **Available from 2 sources** with two identical entries, and choosing the other one showed the same page. Entries from the album's own server and library are now left out, so the button only appears for copies on another server or in another library.
 
+### Login tokens no longer appear in logs and error messages
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), PR [#1742](https://github.com/Psysonic/psysonic/pull/1742)**
+
+* When a request to your server failed, the error text could contain the full request address including the login token, which is enough to sign in as you until the password changes. That text showed up in the terminal output, in some error messages in the app and in the saved sync status. The token is now removed everywhere; the server address stays readable.
+* Sync errors saved by earlier versions are cleaned once when the app starts.
+
 ### Servers connect again when a system proxy is set
 
 **By [@Psychotoxical](https://github.com/Psychotoxical), reported by noaccou on GitHub, PR [#1749](https://github.com/Psysonic/psysonic/pull/1749)**
