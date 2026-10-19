@@ -67,7 +67,9 @@ pub(super) fn search_itunes_artwork_with_base(
     title: &str,
     base_url: &str,
 ) -> Option<String> {
-    let cache_key = format!("{}|{}", artist, album);
+    // Fork patch: songs filed under one shared album (e.g. a playlist folder) must
+    // not reuse each other's artwork, so the title is part of the key.
+    let cache_key = format!("{}|{}|{}", artist, album, title);
 
     // Check cache first
     {
@@ -124,6 +126,92 @@ pub(super) fn search_itunes_artwork_with_base(
         }
     }
 
+    // Fork patch: strategy 4 — song search on the first artist and each part of a
+    // multi-part title ("خطية | Khtaya"), matched on the track name.
+    if let Some(result) = fork_song_search(client, artist, title, base_url) {
+        cache_and_return(cache, cache_key, &result);
+        return Some(result);
+    }
+
+    None
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct ItunesSongResponse {
+    results: Vec<ItunesSongResult>,
+}
+
+#[derive(Deserialize, Debug)]
+#[allow(non_snake_case)]
+struct ItunesSongResult {
+    trackName: Option<String>,
+    artistName: Option<String>,
+    artworkUrl100: Option<String>,
+}
+
+/// Fork patch: first credited artist ("A, B" / "A & B" / "A feat. B" -> "A").
+fn first_artist(artist: &str) -> String {
+    let lower = artist.to_lowercase();
+    let mut end = artist.len();
+    for sep in [",", " & ", " feat", " ft.", " x ", " and "] {
+        if let Some(i) = lower.find(sep) {
+            end = end.min(i);
+        }
+    }
+    lower[..end].trim().to_string()
+}
+
+/// Fork patch: title parts worth searching — the whole title, then each part
+/// split on `|`, `｜`, ` - `, `/`, `⧸`, with bracketed suffixes removed.
+fn title_parts(title: &str) -> Vec<String> {
+    let mut parts = vec![title.trim().to_string()];
+    for piece in title.split(['|', '｜', '/', '⧸']).flat_map(|p| p.split(" - ")) {
+        let cut = piece.find(['(', '[']).map_or(piece, |i| &piece[..i]).trim();
+        if !cut.is_empty() && !parts.iter().any(|p| p == cut) {
+            parts.push(cut.to_string());
+        }
+    }
+    parts.truncate(4);
+    parts
+}
+
+fn fork_song_search(client: &Client, artist: &str, title: &str, base_url: &str) -> Option<String> {
+    if title.trim().is_empty() {
+        return None;
+    }
+    let lead = first_artist(artist);
+    let norm_lead = normalize(&lead);
+    for part in title_parts(title) {
+        let norm_part = normalize(&part);
+        let mut url = url::Url::parse(base_url).ok()?;
+        url.query_pairs_mut()
+            .append_pair("term", &format!("{} {}", lead, part))
+            .append_pair("media", "music")
+            .append_pair("entity", "song")
+            .append_pair("limit", "10");
+        let Some(body) = client
+            .get(url)
+            .send()
+            .ok()
+            .and_then(|r| r.json::<ItunesSongResponse>().ok())
+        else {
+            continue;
+        };
+        for result in &body.results {
+            let track = normalize(result.trackName.as_deref().unwrap_or(""));
+            let result_artist = normalize(result.artistName.as_deref().unwrap_or(""));
+            let artist_match = !norm_lead.is_empty()
+                && (result_artist.contains(&norm_lead) || words_overlap(&norm_lead, &result_artist));
+            let track_match = !track.is_empty()
+                && (track == norm_part || track.contains(&norm_part) || norm_part.contains(&track));
+            if artist_match && track_match {
+                if let Some(art) = result.artworkUrl100.as_ref() {
+                    return Some(art.replace("100x100", "600x600"));
+                }
+            }
+        }
+    }
     None
 }
 
