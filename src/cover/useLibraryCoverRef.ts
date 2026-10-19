@@ -12,7 +12,7 @@ import {
   resolveDistinctDiscCoversForAlbum,
   resolvePlaybackCoverScope,
 } from './ref';
-import { songHasDiscSpecificCover } from './resolveEntry';
+import { coverEntryToRef, songHasDiscSpecificCover } from './resolveEntry';
 import { isNavidromeServer } from '@/lib/server/subsonicServerIdentity';
 import { coverServerScopeForServerId } from './serverScope';
 import { resolveServerIdForIndexKey } from '@/lib/server/serverLookup';
@@ -494,6 +494,20 @@ export function usePlaybackTrackCoverRef(
   // playing track's disc via its canonical `dc-<albumId>:<disc>` slot.
   const discScopedRef = useMultiDiscScopedCoverRef(albumId, discNumber, serverId, scope);
 
+  // Fork patch: on Navidrome, show the playing song's own embedded cover
+  // (`mf-<songId>`) instead of the shared album cover. Navidrome serves the album
+  // art itself when a file has no embedded picture, so this is always safe there.
+  const isNavidrome = useServerIsNavidrome(serverId || activeServerId);
+  const songCoverRef = useMemo(() => {
+    const tid = trackId?.trim();
+    if (!isNavidrome || !tid) return undefined;
+    const own = coverArt?.trim();
+    const fetch = own && own.startsWith('mf-') ? own : `mf-${tid}`;
+    return coverEntryToRef({ cacheKind: 'album', cacheEntityId: `mf-${tid}`, fetchCoverArtId: fetch }, scope);
+    // `scope` is keyed via the stable `scopeKey` string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNavidrome, trackId, coverArt, scopeKey]);
+
   const syncRef = useMemo(() => {
     if (!albumId?.trim() || !track) return undefined;
     return albumCoverRefForPlayback(track, scope);
@@ -542,7 +556,7 @@ export function usePlaybackTrackCoverRef(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track, trackId, albumId, coverArt, discNumber, serverId, scopeKey, syncRef]);
 
-  return discScopedRef ?? ref;
+  return songCoverRef ?? discScopedRef ?? ref;
 }
 
 /**

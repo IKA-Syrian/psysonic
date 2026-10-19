@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { ScrobbleActionButton, usePlayerStore } from '@/features/playback';
 import { queueSongStar, queueSongRating } from '@/features/playback/store/pendingStarSync';
 import { TrackArtistLinks, usePlaybackLibraryNavigate } from '@/features/playback';
-import { useAlbumCoverRef } from '@/cover/useLibraryCoverRef';
+import { usePlaybackTrackCoverRef } from '@/cover/useLibraryCoverRef';
 import { usePlaybackCoverArt } from '@/cover/usePlaybackCoverArt';
 import { useCachedUrl } from '@/ui/CachedImage';
 import { useFsArtistBackdrop } from '@/features/fullscreenPlayer/hooks/useFsArtistBackdrop';
@@ -84,14 +84,8 @@ export default function FullscreenPlayerStatic({ onClose }: Props) {
 
   const duration = currentTrack?.duration ?? 0;
 
-  // Album-keyed cover ref so the cover stays stable across track changes within
-  // the same album. A per-track ref re-keys on `track.coverArt` (Navidrome hands
-  // out `mf-<trackId>` per track), which the distinct-disc heuristic mistakes for
-  // per-disc art and reloads the cover on every song change. Keying on albumId
-  // sidesteps that — same lesson as the artist portrait keying on artistId.
-  // `usePlaybackCoverArt` still re-scopes it to the playback server.
-  const playbackCoverRef =
-    useAlbumCoverRef(currentTrack?.albumId, undefined, undefined, { libraryResolve: false }) ?? undefined;
+  // Fork patch: the playing song's own cover (see usePlaybackTrackCoverRef).
+  const playbackCoverRef = usePlaybackTrackCoverRef(currentTrack ?? undefined);
   // One high-res cover (cucadmuh's fullRes 2000px path) feeds the foreground
   // thumbnail — crisp instead of the old low-res tier. It is no longer a
   // background source (see below).

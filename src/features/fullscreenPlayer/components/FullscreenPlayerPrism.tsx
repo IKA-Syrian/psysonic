@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { usePlayerStore, type PlaybackProgressSnapshot, usePlaybackLibraryNavigate, TrackArtistLinks, ScrobbleActionButton } from '@/features/playback';
 import { FsVolume } from './FsVolume';
-import { useAlbumCoverRef } from '@/cover/useLibraryCoverRef';
+import { usePlaybackTrackCoverRef } from '@/cover/useLibraryCoverRef';
 import { usePlaybackCoverArt } from '@/cover/usePlaybackCoverArt';
 import { useFsArtistBackdrop } from '@/features/fullscreenPlayer/hooks/useFsArtistBackdrop';
 import { useImperativeSeek } from '@/features/fullscreenPlayer/hooks/useImperativeSeek';
@@ -63,9 +63,8 @@ export default function FullscreenPlayerPrism({ onClose }: { onClose: () => void
   // Full-bleed backdrop — the same shared resolution all three FS players use.
   const bgUrl = useFsArtistBackdrop(currentTrack);
 
-  // Cover-derived accent (album-keyed so it stays stable within an album).
-  const albumRef =
-    useAlbumCoverRef(currentTrack?.albumId, undefined, undefined, { libraryResolve: false }) ?? undefined;
+  // Cover-derived accent. Fork patch: follows the playing song's own cover.
+  const albumRef = usePlaybackTrackCoverRef(currentTrack ?? undefined);
   const cover = usePlaybackCoverArt(albumRef, 300, {
     ensureOpts: {
       artistName: currentTrack?.artist ?? '',

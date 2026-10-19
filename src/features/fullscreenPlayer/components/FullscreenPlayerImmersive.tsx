@@ -1,6 +1,6 @@
 import { queueSongStar, playbackCoverArtForAlbum, usePlayerStore, usePlaybackLibraryNavigate, TrackArtistLinks, ScrobbleActionButton } from '@/features/playback';
 import { usePlaybackCoverArt } from '@/cover/usePlaybackCoverArt';
-import { useAlbumCoverRef } from '@/cover/useLibraryCoverRef';
+import { usePlaybackTrackCoverRef } from '@/cover/useLibraryCoverRef';
 import React, { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import {
   SkipBack, SkipForward,
@@ -57,11 +57,8 @@ export default function FullscreenPlayer({ onClose }: FullscreenPlayerProps) {
 
   const duration = currentTrack?.duration ?? 0;
 
-  // Album-keyed cover ref so the cover stays stable across track changes within
-  // the same album — a per-track ref re-keys on `mf-<trackId>` coverArt and
-  // reloads/flickers the cover on every song advance (same fix as the Minimal player).
-  const playbackCoverRef =
-    useAlbumCoverRef(currentTrack?.albumId, undefined, undefined, { libraryResolve: false }) ?? undefined;
+  // Fork patch: the playing song's own cover (see usePlaybackTrackCoverRef).
+  const playbackCoverRef = usePlaybackTrackCoverRef(currentTrack ?? undefined);
 
   const artCover = usePlaybackCoverArt(playbackCoverRef, 300, {
     ensureOpts: {
