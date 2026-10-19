@@ -9,6 +9,7 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 - **Lyrics stay in sync after a crossfade:** the outgoing track no longer adds its fade-out samples to the shared position counter, which made the new track's position (and synced lyrics) run ahead (`COUNT_EPOCH` in `src-tauri/crates/psysonic-audio/src/sources.rs`).
 - **Big albums open faster:** rows outside the view skip layout and paint (`content-visibility` rule at the end of `src/styles/components/tracklist.css`).
 - **Discord covers for songs in a shared album:** the Apple artwork lookup also searches by first artist + each part of the song title, and caches per song (`fork_song_search` in `src-tauri/crates/psysonic-integration/src/discord/artwork.rs`).
+- **Reverse an album with `#`:** clicking the `#` header flips the album to newest-first, remembered per album; Play, Add to queue and clicking a song follow that order (`useAlbumReversedOrder`, `AlbumDetail.tsx`).
 - **Updates come from this fork:** the in-app update check reads this fork's releases (`src/features/updater`). `src-tauri/fork.conf.json` swaps in this fork's updater key and feed at build time.
 
 ## How releases happen

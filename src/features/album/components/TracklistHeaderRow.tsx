@@ -9,6 +9,9 @@ interface Props {
   sortKey?: SortKey;
   sortDir?: 'asc' | 'desc';
   onSort?: (key: SortKey) => void;
+  /** Fork patch: `#` header toggles reversed album order. */
+  numReversed?: boolean;
+  onToggleNumReversed?: () => void;
   allSelected: boolean;
   inSelectMode: boolean;
   toggleAll: () => void;
@@ -31,6 +34,8 @@ export function TracklistHeaderRow({
   sortKey,
   sortDir,
   onSort,
+  numReversed,
+  onToggleNumReversed,
   allSelected,
   inSelectMode,
   toggleAll,
@@ -70,7 +75,13 @@ export function TracklistHeaderRow({
             onClick={e => { e.stopPropagation(); toggleAll(); }}
             style={{ cursor: 'pointer' }}
           />
-          <span className="track-num-number">#</span>
+          <span
+            className="track-num-number"
+            onClick={onToggleNumReversed ? e => { e.stopPropagation(); onToggleNumReversed(); } : undefined}
+            style={onToggleNumReversed ? { cursor: 'pointer' } : undefined}
+          >
+            #{numReversed && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>▼</span>}
+          </span>
           {titleCol?.flex && (
             <div
               className="col-resize-handle"

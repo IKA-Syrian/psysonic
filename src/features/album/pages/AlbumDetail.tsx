@@ -56,6 +56,7 @@ import { resolveIndexKey } from '@/lib/server/serverIndexKey';
 import { sameQueueTrack } from '@/features/playback';
 import { deriveEntitySourceScopes } from '@/lib/library/libraryBrowseScope';
 import { useResolvedTracklistBpm } from '@/lib/hooks/useResolvedTracklistBpm';
+import { useAlbumReversedOrder } from '@/features/album/hooks/useAlbumReversedOrder';
 
 const EMPTY_SONGS: SubsonicSong[] = [];
 
@@ -179,6 +180,13 @@ export default function AlbumDetail() {
     if (!losslessOnly) return album.songs;
     return album.songs.filter(s => isLosslessSuffix(s.suffix));
   }, [album?.songs, losslessOnly]);
+  // Fork patch: `#` header toggles a remembered reversed order; the list and the
+  // queue (Play, Add to queue, row click) both follow it.
+  const { reversed: numReversed, toggle: toggleNumReversed } = useAlbumReversedOrder(albumId);
+  const orderedSongs = useMemo(
+    () => (effectiveSongs && numReversed ? [...effectiveSongs].reverse() : effectiveSongs),
+    [effectiveSongs, numReversed],
+  );
   // Album columns own their visibility below this page, so resolve the small
   // album list eagerly to keep BPM sorting and cells on the same values.
   const resolvedBpmSongs = useResolvedTracklistBpm(
@@ -240,9 +248,9 @@ export default function AlbumDetail() {
   }, [albumOwnerServerId, album?.album.artistId]);
 
 const handlePlayAll = () => {
-     if (!album || !effectiveSongs) return;
+     if (!album || !orderedSongs) return;
      const albumGenre = album.album.genre;
-     const tracks = effectiveSongs.map(s => {
+     const tracks = orderedSongs.map(s => {
        const t = songToTrack(s);
        if (!t.genre && albumGenre) t.genre = albumGenre;
        return t;
@@ -251,9 +259,9 @@ const handlePlayAll = () => {
    };
 
 const handleEnqueueAll = () => {
-     if (!album || !effectiveSongs) return;
+     if (!album || !orderedSongs) return;
      const albumGenre = album.album.genre;
-     const tracks = effectiveSongs.map(s => {
+     const tracks = orderedSongs.map(s => {
        const t = songToTrack(s);
        if (!t.genre && albumGenre) t.genre = albumGenre;
        return t;
@@ -277,9 +285,9 @@ const handleShuffleAll = () => {
 
    const handlePlaySong = (song: SubsonicSong) => {
      if (orbitActive) { queueHint(); return; }
-     if (!album || !effectiveSongs) return;
+     if (!album || !orderedSongs) return;
      const albumGenre = album.album.genre;
-     const tracks = effectiveSongs.map(s => {
+     const tracks = orderedSongs.map(s => {
        const t = songToTrack(s);
        if (!t.genre && albumGenre) t.genre = albumGenre;
        return t;
@@ -471,8 +479,12 @@ const handleShuffleAll = () => {
     return merged;
   }, [resolvedBpmSongs, starredOverrides, starredSongs]);
 
+  const orderedBpmSongs = useMemo(
+    () => (numReversed ? [...resolvedBpmSongs].reverse() : resolvedBpmSongs),
+    [resolvedBpmSongs, numReversed],
+  );
   const { sortKey, sortDir, handleSort, displayedSongs } = useAlbumDetailSort({
-    songs: resolvedBpmSongs,
+    songs: orderedBpmSongs,
     filterText,
     starredSongs: mergedStarredSongs,
     ratings,
@@ -588,7 +600,7 @@ const handleShuffleAll = () => {
       <AlbumTrackList
         songs={displayedSongs}
         discTitles={album?.album.discTitles}
-        sorted={sortKey !== 'natural' || !!filterText.trim()}
+        sorted={sortKey !== 'natural' || !!filterText.trim() || numReversed}
         hasVariousArtists={hasVariousArtists}
         currentTrack={currentTrack}
         isPlaying={isPlaying}
@@ -603,6 +615,8 @@ const handleShuffleAll = () => {
         sortKey={sortKey}
         sortDir={sortDir}
         onSort={handleSort}
+        numReversed={numReversed}
+        onToggleNumReversed={toggleNumReversed}
         actionPolicy={albumActionPolicy}
       />
 

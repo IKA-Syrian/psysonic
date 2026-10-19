@@ -42,6 +42,9 @@ interface AlbumTrackListProps {
   sortKey?: SortKey;
   sortDir?: 'asc' | 'desc';
   onSort?: (key: SortKey) => void;
+  /** Fork patch: `#` header toggles reversed album order. */
+  numReversed?: boolean;
+  onToggleNumReversed?: () => void;
   actionPolicy?: OfflineActionPolicy;
 }
 
@@ -65,6 +68,8 @@ export default function AlbumTrackList({
   sortKey,
   sortDir,
   onSort,
+  numReversed,
+  onToggleNumReversed,
   actionPolicy,
 }: AlbumTrackListProps) {
   const policy = actionPolicy ?? offlineActionPolicy('trackRow', false);
@@ -174,6 +179,8 @@ export default function AlbumTrackList({
         sortKey={sortKey}
         sortDir={sortDir}
         onSort={onSort}
+        numReversed={numReversed}
+        onToggleNumReversed={onToggleNumReversed}
         allSelected={allSelected}
         inSelectMode={inSelectMode}
         toggleAll={toggleAll}
