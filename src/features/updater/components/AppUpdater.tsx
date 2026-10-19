@@ -206,7 +206,7 @@ export default function AppUpdater() {
             <code className="update-modal-aur-cmd">{flatpakUpdateCommand}</code>
             <button
               className="app-updater-btn-primary"
-              onClick={() => open(`https://github.com/Psysonic/psysonic/releases/tag/${release.tag}`)}
+              onClick={() => open(`https://github.com/ayhamo/psysonic/releases/tag/${release.tag}`)}
             >
               {t('common.updaterOpenGitHub')}
             </button>
@@ -255,7 +255,7 @@ export default function AppUpdater() {
           <div className="update-modal-asset-none">
             <button
               className="app-updater-btn-primary"
-              onClick={() => open(`https://github.com/Psysonic/psysonic/releases/tag/${release.tag}`)}
+              onClick={() => open(`https://github.com/ayhamo/psysonic/releases/tag/${release.tag}`)}
             >
               {t('common.updaterOpenGitHub')}
             </button>

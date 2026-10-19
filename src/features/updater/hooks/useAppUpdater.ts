@@ -50,7 +50,8 @@ export function useAppUpdater() {
         assets = [];
         setFlatpakBranch(info.branch);
       } else {
-        const res = await fetch('https://api.github.com/repos/Psysonic/psysonic/releases/latest');
+        // Fork patch: updates come from the fork's own releases.
+        const res = await fetch('https://api.github.com/repos/ayhamo/psysonic/releases/latest');
         if (!res.ok) return;
         const data = await res.json();
         tag = data.tag_name ?? '';

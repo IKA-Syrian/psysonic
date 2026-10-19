@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNCMEQ2QkM0MkM5MTA2N0UKUldSK0JwRXN4R3NOT3hQcjZON1FEMFZwQ3FLYUtScEZuVmdkLy9zQnpXeUxKMjhRZlVNcjRReEcK",
+      "endpoints": [
+        "https://github.com/ayhamo/psysonic/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive",
+        "installerArgs": []
+      }
+    }
+  }
+}

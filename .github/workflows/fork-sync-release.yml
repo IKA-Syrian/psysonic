@@ -1,0 +1,108 @@
+# Fork-only workflow. Once a day it checks Psysonic's stable `release` branch.
+# When upstream has a version this fork has not released yet, it merges that
+# release into this branch's patches (in the runner only, nothing is pushed),
+# builds the Windows installer, signs it with the fork's updater key and
+# publishes it as a release here. The app's updater (pointed at this fork)
+# then offers it. If the merge conflicts, the run fails and nothing is published.
+name: Fork sync and release
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild and replace the release even if this version exists"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-sync-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      upstream_sha: ${{ steps.ver.outputs.upstream_sha }}
+      build: ${{ steps.ver.outputs.build }}
+    steps:
+      - name: compare upstream release with fork releases
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api repos/Psychotoxical/psysonic/branches/release --jq .commit.sha)
+          version=$(gh api "repos/Psychotoxical/psysonic/contents/src-tauri/tauri.conf.json?ref=$sha" --jq .content | base64 -d | jq -r .version)
+          echo "upstream release: $version ($sha)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$sha" >> "$GITHUB_OUTPUT"
+          if gh release view "fork-v$version" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            if [ "$FORCE" = "true" ]; then
+              gh release delete "fork-v$version" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              echo "build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "fork-v$version already released, nothing to do"
+              echo "build=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-windows:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: merge upstream release into the fork patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git remote add upstream https://github.com/Psychotoxical/psysonic.git
+          git fetch --no-tags upstream release
+          git merge --no-edit "${{ needs.check.outputs.upstream_sha }}"
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$version" != "${{ needs.check.outputs.version }}" ]; then
+            echo "version after merge is $version, expected ${{ needs.check.outputs.version }}"
+            exit 1
+          fi
+      - name: setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: "npm"
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: install npm dependencies
+        run: npm install
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: fork-v${{ needs.check.outputs.version }}
+          releaseName: Psysonic ${{ needs.check.outputs.version }} (song covers)
+          releaseBody: |
+            Psysonic ${{ needs.check.outputs.version }} with this fork's patches: the playing song shows its own cover, and updates come from this fork.
+            Upstream commit: ${{ needs.check.outputs.upstream_sha }}
+            Release notes: https://github.com/Psychotoxical/psysonic/releases/tag/app-v${{ needs.check.outputs.version }}
+          releaseDraft: false
+          prerelease: false
+          args: --bundles nsis --config src-tauri/fork.conf.json
