@@ -31,7 +31,9 @@ export function shouldAutodjInterruptBlend(
 ): boolean {
   if (!wasPlaying || hasJsAutoHandoff) return false;
   const auth = useAuthStore.getState();
-  return getTransitionMode(auth) === 'autodj'
+  const mode = getTransitionMode(auth);
+  // Fork patch: classic crossfade also blends manual skips (see computeAutodjManualBlendPlan).
+  return (mode === 'autodj' || mode === 'crossfade')
     && auth.autodjSmoothSkip
     && !auth.gaplessEnabled;
 }
@@ -58,6 +60,16 @@ export function computeAutodjManualBlendPlan(
   const aDur = Number.isFinite(aDurationSec) && aDurationSec > 0 ? aDurationSec : 0;
   const bDur = Number.isFinite(bDurationSec) && bDurationSec > 0 ? bDurationSec : 0;
   if (aDur <= 0 || bDur <= 0) return null;
+
+  // Fork patch: classic crossfade blends a manual skip over the user's fixed
+  // crossfade length (equal-power, both tracks), not AutoDJ's content-driven span.
+  const auth = useAuthStore.getState();
+  if (getTransitionMode(auth) === 'crossfade') {
+    const aRemaining = aDur - Math.max(0, skipFromTimeSec);
+    if (aRemaining < MIN_A_REMAINING_SEC) return null;
+    const overlap = Math.max(0.5, Math.min(auth.crossfadeSecs, aRemaining, bDur * 0.9));
+    return { bStartSec: 0, overlapSec: overlap, outgoingFadeSec: overlap };
+  }
 
   const base = planCrossfadeTransition(aBins, aDur, bBins, bDur, {
     maxOverlapSec: autodjMaxOverlapCapSec(useAuthStore.getState()),
