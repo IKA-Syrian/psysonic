@@ -69,17 +69,22 @@ export function TracklistHeaderRow({
       const titleColIndex = visibleCols.findIndex(c => c.key === 'title');
       const titleCol = titleColIndex >= 0 ? visibleCols[titleColIndex] : undefined;
       return (
-        <div key={key} className="track-num" style={{ position: 'relative' }}>
+        <div
+          key={key}
+          className={`track-num${numReversed ? ' tracklist-header-cell-active' : ''}`}
+          style={{ position: 'relative', cursor: onToggleNumReversed ? 'pointer' : undefined, userSelect: 'none' }}
+          onClick={onToggleNumReversed ? e => {
+            // Fork patch: the whole `#` cell toggles reversed order (not the select box or resize handle).
+            if ((e.target as HTMLElement).closest('.col-resize-handle')) return;
+            onToggleNumReversed();
+          } : undefined}
+        >
           <span
             className={`bulk-check${allSelected ? ' checked' : ''}${inSelectMode ? ' bulk-check-visible' : ''}`}
             onClick={e => { e.stopPropagation(); toggleAll(); }}
             style={{ cursor: 'pointer' }}
           />
-          <span
-            className="track-num-number"
-            onClick={onToggleNumReversed ? e => { e.stopPropagation(); onToggleNumReversed(); } : undefined}
-            style={onToggleNumReversed ? { cursor: 'pointer' } : undefined}
-          >
+          <span className="track-num-number" style={numReversed ? { fontWeight: 600 } : undefined}>
             #{numReversed && <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>▼</span>}
           </span>
           {titleCol?.flex && (
