@@ -4,7 +4,8 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with two small cha
 
 ## What is different
 
-- **Song covers:** the player bar, Now Playing, the queue, the mini player, the fullscreen players and the visualizer show the playing song's own embedded cover (`mf-<songId>` on Navidrome) instead of the album cover. The change is in `usePlaybackTrackCoverRef` (`src/cover/useLibraryCoverRef.ts`).
+- **Song covers:** everywhere a single song is shown (player bar, Now Playing, queue, fullscreen, song cards, track lists) it shows the song's own embedded cover (`mf-<songId>` on Navidrome) instead of the album cover. See `songOwnCoverEntry` (`src/cover/resolveEntry.ts`) and `usePlaybackTrackCoverRef`. Nine upstream cover tests that expect album covers fail on purpose; they are left untouched to avoid merge conflicts.
+- **Crossfade on skip:** in classic crossfade mode, Next/Previous also fades over the crossfade length (`src/features/playback/utils/playback/autodjManualBlend.ts`).
 - **Updates come from this fork:** the in-app update check reads this fork's releases (`src/features/updater`). `src-tauri/fork.conf.json` swaps in this fork's updater key and feed at build time.
 
 ## How releases happen

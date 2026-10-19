@@ -163,8 +163,23 @@ export function resolveTrackCoverEntry(
 ): CoverEntry | undefined {
   const albumId = song.albumId?.trim();
   if (!albumId) return undefined;
+  const own = songOwnCoverEntry(song);
+  if (own) return own;
   const fetch = resolveSongFetchCoverArtId(song) ?? albumId;
   return resolveAlbumCoverEntry(albumId, fetch, distinctDiscCovers);
+}
+
+/**
+ * Fork patch: a song with its own embedded picture (Navidrome `mf-<songId>`)
+ * shows that picture everywhere a single song is drawn, in its own cache slot,
+ * instead of the shared album cover.
+ */
+export function songOwnCoverEntry(
+  song: Pick<SubsonicSong, 'coverArt'>,
+): CoverEntry | undefined {
+  const cover = song.coverArt?.trim();
+  if (!cover || !cover.startsWith('mf-')) return undefined;
+  return { cacheKind: 'album', cacheEntityId: cover, fetchCoverArtId: cover };
 }
 
 export function coverEntryToRef(

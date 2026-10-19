@@ -13,6 +13,7 @@ import {
   resolveAlbumCoverEntry,
   resolveArtistCoverEntry,
   resolveTrackCoverEntry,
+  songOwnCoverEntry,
   resolveSongFetchCoverArtId,
   type CoverEntry,
 } from './resolveEntry';
@@ -192,6 +193,9 @@ function pickTrackCoverEntry(
 ): CoverEntry | undefined {
   const albumId = song.albumId?.trim();
   const fromClient = resolveTrackCoverEntry(song, distinctDiscCovers);
+  // Fork patch: the song's own picture wins over the library's album bucket.
+  const own = songOwnCoverEntry(song);
+  if (own) return own;
   if (!fromLibrary) return fromClient;
   if (!fromClient) {
     return albumId && fromLibrary.cacheKind === 'album'
