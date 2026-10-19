@@ -352,7 +352,9 @@ pub async fn audio_play(
 
     // Build source: decode → trim → resample → EQ → fade-in → fade-out → notify → count.
     let done_flag = Arc::new(AtomicBool::new(false));
-    // Reset sample counter for the new track.
+    // Reset sample counter for the new track. Fork patch: retire the outgoing
+    // track's counting first so its crossfade tail no longer adds to it.
+    super::sources::begin_new_count_epoch();
     state.samples_played.store(0, Ordering::Relaxed);
     let playback_source = build_playback_source_with_probe_fallback(
         play_input,

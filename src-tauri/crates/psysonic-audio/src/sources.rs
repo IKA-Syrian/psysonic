@@ -332,11 +332,25 @@ impl<S: Source<Item = f32>> Source for NotifyingSource<S> {
 // The progress task reads this counter and divides by (sample_rate * channels)
 // to get the exact playback position — no wall-clock drift.
 
+// Fork patch: every track adds to the same `samples_played` counter. During a
+// crossfade the outgoing track keeps playing (and counting) after the incoming
+// track reset the counter, so the new track's position ran ahead by the fade
+// length and synced lyrics showed lines early. `audio_play` bumps this epoch
+// before resetting the counter; a source only counts while its epoch is current.
+static COUNT_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Called when a new track takes over the shared position counter.
+pub(crate) fn begin_new_count_epoch() {
+    COUNT_EPOCH.fetch_add(1, Ordering::Relaxed);
+}
+
 pub(crate) struct CountingSource<S: Source<Item = f32>> {
     inner: S,
     counter: Arc<AtomicU64>,
     /// When set, count samples only while the flag is true (legacy track stream).
     count_gate: Option<Arc<AtomicBool>>,
+    /// `COUNT_EPOCH` when this source was built (fork patch).
+    epoch: u64,
 }
 
 impl<S: Source<Item = f32>> CountingSource<S> {
@@ -345,6 +359,7 @@ impl<S: Source<Item = f32>> CountingSource<S> {
             inner,
             counter,
             count_gate: None,
+            epoch: COUNT_EPOCH.load(Ordering::Relaxed),
         }
     }
 
@@ -353,11 +368,13 @@ impl<S: Source<Item = f32>> CountingSource<S> {
             inner,
             counter,
             count_gate: Some(gate),
+            epoch: COUNT_EPOCH.load(Ordering::Relaxed),
         }
     }
 
     fn should_count(&self) -> bool {
-        self.count_gate
+        COUNT_EPOCH.load(Ordering::Relaxed) == self.epoch
+            && self.count_gate
             .as_ref()
             .is_none_or(|g| g.load(Ordering::Relaxed))
     }

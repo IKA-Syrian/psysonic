@@ -6,6 +6,8 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 
 - **Song covers:** everywhere a single song is shown (player bar, Now Playing, queue, fullscreen, song cards, track lists) it shows the song's own embedded cover (`mf-<songId>` on Navidrome) instead of the album cover. See `songOwnCoverEntry` (`src/cover/resolveEntry.ts`) and `usePlaybackTrackCoverRef`. Nine upstream cover tests that expect album covers fail on purpose; they are left untouched to avoid merge conflicts.
 - **Crossfade on skip:** in classic crossfade mode, Next/Previous also fades over the crossfade length (`src/features/playback/utils/playback/autodjManualBlend.ts`).
+- **Lyrics stay in sync after a crossfade:** the outgoing track no longer adds its fade-out samples to the shared position counter, which made the new track's position (and synced lyrics) run ahead (`COUNT_EPOCH` in `src-tauri/crates/psysonic-audio/src/sources.rs`).
+- **Big albums open faster:** rows outside the view skip layout and paint (`content-visibility` rule at the end of `src/styles/components/tracklist.css`).
 - **Updates come from this fork:** the in-app update check reads this fork's releases (`src/features/updater`). `src-tauri/fork.conf.json` swaps in this fork's updater key and feed at build time.
 
 ## How releases happen

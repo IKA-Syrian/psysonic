@@ -851,3 +851,10 @@ html[data-track-previews-randommix="off"]   [data-preview-loc="randomMix"]   .pl
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
 }
+
+/* Fork patch: big albums (hundreds of rows, not virtualized) lag on open and
+   scroll. Let the browser skip layout and paint for rows outside the view. */
+.track-row-with-actions {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}
