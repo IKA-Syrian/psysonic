@@ -1,6 +1,6 @@
 # Psysonic (ayhamo fork)
 
-This is [Psysonic](https://github.com/Psychotoxical/psysonic) with two small changes. The original README is [here](../README.md).
+This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small changes. The original README is [here](../README.md).
 
 ## What is different
 
