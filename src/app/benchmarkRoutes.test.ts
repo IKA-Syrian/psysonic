@@ -20,6 +20,7 @@ describe('benchmark routes', () => {
       '/now-playing',
       '/device-sync',
       '/shared',
+      '/moods',
     ]));
   });
 

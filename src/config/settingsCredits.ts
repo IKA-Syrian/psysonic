@@ -648,6 +648,7 @@ const CONTRIBUTOR_ENTRIES = [
     contributions: [
       'Browse albums by file mood tags (PR #1675)',
       'Browse individual tracks by mood (PR #1685)',
+      'Search and sort genre and mood catalogs (PR #1733)',
     ],
   },
   {
