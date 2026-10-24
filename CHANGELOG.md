@@ -557,6 +557,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * When one library held two albums with the same artist and title but different years — an original and its remaster, or two self-titled albums — Psysonic showed them as one album with both track lists. They now appear as separate albums with their own pages. Copies on other servers or in other libraries join the release with the same year.
 * Existing libraries are updated once in the background after the update.
 
+### Streaming playback no longer keeps a CPU core busy
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), PR [#1788](https://github.com/Psysonic/psysonic/pull/1788)**
+
+* Since 1.55, the decoder thread for streamed tracks ran in a tight loop for the whole track and kept one CPU core at nearly 100 %. It now waits while enough audio is buffered; on Windows its load dropped from about 98 % to about 2 % of one core. Local and downloaded files were not affected.
+
 ## [1.55.0]
 
 ## Added
