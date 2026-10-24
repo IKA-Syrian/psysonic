@@ -550,6 +550,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Greek labels for record labels and their index update now use consistent, shorter wording, with a small correction to the empty mood track list message.
 
+### An original and its reissue are two albums again
+
+**By [@Psychotoxical](https://github.com/Psychotoxical), reported by netherguy4 on GitHub, PR [#1744](https://github.com/Psysonic/psysonic/pull/1744)**
+
+* When one library held two albums with the same artist and title but different years — an original and its remaster, or two self-titled albums — Psysonic showed them as one album with both track lists. They now appear as separate albums with their own pages. Copies on other servers or in other libraries join the release with the same year.
+* Existing libraries are updated once in the background after the update.
+
 ## [1.55.0]
 
 ## Added
