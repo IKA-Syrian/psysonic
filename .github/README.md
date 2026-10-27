@@ -15,7 +15,7 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 
 ## How releases happen
 
-The **Fork sync and release** workflow runs every day. When upstream's `release` branch has a version this fork hasn't released, it merges that version into `covers` inside the runner (nothing is pushed), builds the Windows installer, signs it and publishes `fork-vX.Y.Z`. The app then offers the update. It can also be run by hand with **force** to rebuild the current version.
+The **Fork sync and release** workflow runs every day. When upstream's `release` branch has a version this fork hasn't released, it merges that version into `covers` inside the runner (nothing is pushed), builds the Windows installer, signs it and publishes `fork-vX.Y.Z` with upstream's release notes added below the fork's own lines. The app then offers the update. It can also be run by hand with **force** to rebuild the current version.
 
 ## If a run fails
 

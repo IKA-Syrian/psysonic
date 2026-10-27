@@ -106,3 +106,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --bundles nsis --config src-tauri/fork.conf.json
+      - name: add upstream's release notes below ours
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="fork-v${{ needs.check.outputs.version }}"
+          if ! gh release view "app-v${{ needs.check.outputs.version }}" -R Psychotoxical/psysonic --json body -q .body > upstream.md; then
+            echo "no upstream release notes found, keeping ours only"
+            exit 0
+          fi
+          gh release view "$tag" -R "$GITHUB_REPOSITORY" --json body -q .body > ours.md
+          { cat ours.md; printf '\n'; cat upstream.md; } > notes.md
+          gh release edit "$tag" -R "$GITHUB_REPOSITORY" --notes-file notes.md
