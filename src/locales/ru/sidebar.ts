@@ -23,6 +23,8 @@ export const sidebar = {
   cancelDownload: 'Отменить загрузку',
   offlineLibrary: 'Офлайн-библиотека',
   genres: 'Жанры',
+  moods: 'Настроения',
+  labels: 'Лейблы',
   tracks: 'Треки',
   playlists: 'Плейлисты',
   shared: 'ND Общий Доступ',

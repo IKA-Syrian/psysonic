@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_LOUDNESS_PRE_ANALYSIS_ATTENUATION_DB,
   clampScrobbleThresholdPercent,
+  sanitizeFullscreenAutoOpenMinutes,
 } from './authStoreDefaults';
 import {
   clampMixFilterMinStars,
@@ -36,6 +37,7 @@ import type {
 import { migrateLegacyLastfm, sanitizeAccounts, sanitizeScrobbleQueue } from '../music-network';
 import { deriveLibraryBrowseServerIdsWithFallback } from '@/lib/library/libraryBrowseScope';
 import { sanitizeDebugLoggingDepth } from '@/lib/perf/debugLoggingMode';
+import { legacyFilterFromSelection } from './authMusicLibrarySelection';
 
 /**
  * Computes the post-rehydration patch for the auth store. Runs all
@@ -367,6 +369,15 @@ export function computeAuthStoreRehydration(state: AuthState): Partial<AuthState
       .filter(([serverId, selection]) => serverIds.has(serverId) && Array.isArray(selection))
       .map(([serverId, selection]) => [serverId, [...new Set((selection as unknown[]).filter((id): id is string => typeof id === 'string'))]]),
   );
+  // The sidebar scope is authoritative. Repair persisted single-library state
+  // for older readers and for users who later downgrade to a previous build.
+  const musicLibrarySelectionByServer = { ...state.musicLibrarySelectionByServer };
+  const musicLibraryFilterByServer = { ...state.musicLibraryFilterByServer };
+  for (const serverId of serverIds) {
+    const selection = libraryBrowseSelectionByServer[serverId] ?? [];
+    musicLibrarySelectionByServer[serverId] = selection;
+    musicLibraryFilterByServer[serverId] = legacyFilterFromSelection(selection);
+  }
 
   return {
     ...mediaDirMigrated,
@@ -374,6 +385,8 @@ export function computeAuthStoreRehydration(state: AuthState): Partial<AuthState
     libraryBrowseServerIds,
     musicFoldersByServer,
     libraryBrowseSelectionByServer,
+    musicLibrarySelectionByServer,
+    musicLibraryFilterByServer,
     libraryBrowseScopeVersion: 0,
     debugLoggingDepth: sanitizeDebugLoggingDepth(
       (state as { debugLoggingDepth?: unknown }).debugLoggingDepth,
@@ -399,6 +412,9 @@ export function computeAuthStoreRehydration(state: AuthState): Partial<AuthState
       const v = (state as { fsPortraitDim?: unknown }).fsPortraitDim;
       return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(80, Math.round(v))) : 28;
     })(),
+    fullscreenAutoOpenMinutes: sanitizeFullscreenAutoOpenMinutes(
+      (state as { fullscreenAutoOpenMinutes?: unknown }).fullscreenAutoOpenMinutes,
+    ),
     skipStarManualSkipCountsByKey: sanitizeSkipStarCounts(
       (state as { skipStarManualSkipCountsByKey?: unknown }).skipStarManualSkipCountsByKey,
     ),

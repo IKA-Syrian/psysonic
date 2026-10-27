@@ -6,7 +6,7 @@ import { getArtistInfoForServer } from '@/lib/api/subsonicArtists';
 import { getAlbumInfoForServer } from '@/lib/api/subsonicAlbumInfo';
 import type { SubsonicSong } from '@/lib/api/subsonicTypes';
 import { songToTrack } from '@/lib/media/songToTrack';
-import { shuffleArray } from '@/lib/util/shuffleArray';
+import type { Track } from '@/lib/media/trackTypes';
 import { ownedEntityKey, ownedOverrideValue } from '@/lib/util/ownedEntityKey';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router';
@@ -28,6 +28,7 @@ import { shouldAttemptSubsonicForServer } from '@/lib/network/subsonicNetworkGua
 import { join } from '@tauri-apps/api/path';
 import { useZipDownloadStore } from '@/features/offline';
 import AlbumCard from '@/features/album/components/AlbumCard';
+import SimilarAlbumsRail from '@/features/album/components/SimilarAlbumsRail';
 import AlbumHeader from '@/features/album/components/AlbumHeader';
 import AlbumTrackList from '@/features/album/components/AlbumTrackList';
 import { AlbumDetailToolbar } from '@/features/album/components/AlbumDetailToolbar';
@@ -53,7 +54,7 @@ import { readDetailServerId } from '@/lib/navigation/detailServerScope';
 import { useOfflineBrowseContext } from '@/features/offline';
 import { offlineActionPolicy } from '@/features/offline';
 import { resolveIndexKey } from '@/lib/server/serverIndexKey';
-import { sameQueueTrack } from '@/features/playback';
+import { sameQueueTrack, shuffleTracks, withQueueSource } from '@/features/playback';
 import { deriveEntitySourceScopes } from '@/lib/library/libraryBrowseScope';
 import { useResolvedTracklistBpm } from '@/lib/hooks/useResolvedTracklistBpm';
 import { useAlbumReversedOrder } from '@/features/album/hooks/useAlbumReversedOrder';
@@ -247,6 +248,16 @@ export default function AlbumDetail() {
     setBioOpen(false);
   }, [albumOwnerServerId, album?.album.artistId]);
 
+// Starts in album order carry the album as their source, which the resume
+// points read; shuffled starts do not.
+const playFromAlbum = (track: Track, tracks: Track[]) => {
+     if (!album) return;
+     withQueueSource(
+       { kind: 'album', id: album.album.id, serverId: albumOwnerServerId || undefined },
+       () => playTrack(track, tracks),
+     );
+   };
+
 const handlePlayAll = () => {
      if (!album || !orderedSongs) return;
      const albumGenre = album.album.genre;
@@ -255,7 +266,7 @@ const handlePlayAll = () => {
        if (!t.genre && albumGenre) t.genre = albumGenre;
        return t;
      });
-     if (tracks[0]) playTrack(tracks[0], tracks);
+     if (tracks[0]) playFromAlbum(tracks[0], tracks);
    };
 
 const handleEnqueueAll = () => {
@@ -277,7 +288,7 @@ const handleShuffleAll = () => {
        if (!t.genre && albumGenre) t.genre = albumGenre;
        return t;
      });
-     const shuffled = shuffleArray(tracks);
+     const shuffled = shuffleTracks(tracks);
      if (shuffled[0]) playTrack(shuffled[0], shuffled);
    };
 
@@ -294,7 +305,7 @@ const handleShuffleAll = () => {
      });
       const clickedTrack = songToTrack(song);
       const track = tracks.find(t => sameQueueTrack(t, clickedTrack)) || clickedTrack;
-      playTrack(track, tracks);
+      playFromAlbum(track, tracks);
    };
 
    const handleDoubleClickSong = (song: SubsonicSong) => addTrackToOrbit(song.id, song.serverId);
@@ -645,6 +656,14 @@ const handleShuffleAll = () => {
           />
         </div>
       )}
+
+      <SimilarAlbumsRail
+        serverId={albumOwnerServerId}
+        albumId={albumOwnerId}
+        artistId={info.artistId}
+        songs={album.songs}
+        enabled={!offlineCtx.active}
+      />
     </div>
   );
 }

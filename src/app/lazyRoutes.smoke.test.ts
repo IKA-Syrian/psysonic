@@ -22,7 +22,8 @@ const ROUTE_LOADERS: Array<[string, () => Promise<{ default: unknown }>]> = [
   ['@/features/album/pages/MostPlayed', () => import('@/features/album/pages/MostPlayed')],
   ['@/features/album/pages/LosslessAlbums', () => import('@/features/album/pages/LosslessAlbums')],
   ['@/features/album/pages/RandomAlbums', () => import('@/features/album/pages/RandomAlbums')],
-  ['@/features/album/pages/LabelAlbums', () => import('@/features/album/pages/LabelAlbums')],
+  ['@/features/label/pages/Labels', () => import('@/features/label/pages/Labels')],
+  ['@/features/label/pages/LabelDetail', () => import('@/features/label/pages/LabelDetail')],
   ['@/features/artist/pages/Artists', () => import('@/features/artist/utils/artistBrowseRoutePrefetch').then(m => m.lazyLoadArtistsPage())],
   ['@/features/artist/pages/ArtistDetail', () => import('@/features/artist/pages/ArtistDetail')],
   ['@/features/composers/pages/Composers', () => import('@/features/composers/pages/Composers')],
@@ -46,6 +47,8 @@ const ROUTE_LOADERS: Array<[string, () => Promise<{ default: unknown }>]> = [
   ['@/features/radio/pages/InternetRadio', () => import('@/features/radio/pages/InternetRadio')],
   ['@/features/genre/pages/Genres', () => import('@/features/genre/pages/Genres')],
   ['@/features/genre/pages/GenreDetail', () => import('@/features/genre/pages/GenreDetail')],
+  ['@/features/mood/pages/Moods', () => import('@/features/mood/pages/Moods')],
+  ['@/features/mood/pages/MoodDetail', () => import('@/features/mood/pages/MoodDetail')],
   ['@/features/share/pages/Shared', () => import('@/features/share/pages/Shared')],
   ['@/features/auth/pages/Login', () => import('@/features/auth/pages/Login')],
 ];

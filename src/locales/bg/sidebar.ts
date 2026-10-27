@@ -24,6 +24,8 @@ export const sidebar = {
   cancelDownload: 'Отмени изтеглянето',
   offlineLibrary: 'Офлайн библиотека',
   genres: 'Жанрове',
+  moods: 'Настроения',
+  labels: 'Лейбъли',
   tracks: 'Песни',
   playlists: 'Плейлисти',
   shared: 'ND Споделяния',

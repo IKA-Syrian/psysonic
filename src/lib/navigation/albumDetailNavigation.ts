@@ -166,12 +166,28 @@ function isGenreDetailReturnPath(path: string): boolean {
   return /^\/genres\/[^/]+$/.test(bare);
 }
 
+function isLabelDetailReturnPath(path: string): boolean {
+  const bare = path.split('?')[0]?.replace(/\/$/, '') || path;
+  return /^\/label\/[^/]+$/.test(bare);
+}
+
+function isMoodDetailReturnPath(path: string): boolean {
+  const bare = path.split('?')[0]?.replace(/\/$/, '') || path;
+  return /^\/moods\/[^/]+$/.test(bare);
+}
+
 function browseReturnRestoreState(
   returnTo: string,
   detailState: unknown,
 ): AlbumsBrowseRestoreLocationState | undefined {
   if (isAlbumGridBrowseReturnPath(returnTo)) return albumBrowseRestoreNavigationState();
-  if (isGenreDetailReturnPath(returnTo)) return albumBrowseRestoreNavigationState();
+  if (
+    isGenreDetailReturnPath(returnTo)
+    || isMoodDetailReturnPath(returnTo)
+    || isLabelDetailReturnPath(returnTo)
+  ) {
+    return albumBrowseRestoreNavigationState();
+  }
   if (isArtistsBrowseReturnPath(returnTo)) return artistBrowseRestoreNavigationState();
   if (isComposersBrowseReturnPath(returnTo)) return composerBrowseRestoreNavigationState();
   if (isSearchReturnPath(returnTo)) return advancedSearchRestoreNavigationState();

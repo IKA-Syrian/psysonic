@@ -10,11 +10,13 @@ fn track(builder: impl FnOnce(&mut TrackSyncInfo)) -> TrackSyncInfo {
         album: "Album".into(),
         title: "Title".into(),
         track_number: Some(1),
+        disc_number: None,
         duration: Some(180),
         playlist_name: None,
         playlist_id: None,
         playlist_index: None,
         flat_layout: false,
+        overwrite: false,
     };
     builder(&mut track);
     track
@@ -29,6 +31,7 @@ fn norm(path: String) -> String {
 }
 
 mod download;
+mod local_target;
 mod manifest;
 mod paths;
 mod playlist;

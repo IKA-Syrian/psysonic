@@ -46,6 +46,8 @@ export type Theme = BuiltinTheme | (string & {});
 /** Trigger for the day/night theme switch. */
 export type ThemeSchedulerMode = 'time' | 'system';
 
+export type TrackRowPlayClick = 'single' | 'double';
+
 interface ThemeState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -84,10 +86,23 @@ interface ThemeState {
   setTrackListCoverArtOnPages: (v: boolean) => void;
   showBitrate: boolean;
   setShowBitrate: (v: boolean) => void;
+  /** "E" badge next to tracks the server marks explicit. Drives `html[data-explicit-badges]`. */
+  showExplicitBadges: boolean;
+  setShowExplicitBadges: (v: boolean) => void;
+  /** Blur the cover of explicit tracks (and of albums with one) outside the lightbox. */
+  blurExplicitCovers: boolean;
+  setBlurExplicitCovers: (v: boolean) => void;
   /** Hover tooltip with the full name when a card or tile truncates it.
    *  Only shown when the text is actually cut off — measured on hover. */
   showCardTooltips: boolean;
   setShowCardTooltips: (v: boolean) => void;
+  /** How a click on a song row in a page tracklist starts playback. `double`
+   *  keeps a stray single click from replacing what is playing. */
+  trackRowPlayClick: TrackRowPlayClick;
+  setTrackRowPlayClick: (v: TrackRowPlayClick) => void;
+  /** Two-finger horizontal touchpad swipe goes back / forward (#935). */
+  touchpadSwipeNavigation: boolean;
+  setTouchpadSwipeNavigation: (v: boolean) => void;
   /** Compact (icon-only) vs. large action/toolbar buttons across detail pages and browse views. */
   buttonSize: 'large' | 'small';
   setButtonSize: (v: 'large' | 'small') => void;
@@ -182,8 +197,16 @@ export const useThemeStore = create<ThemeState>()(
       setTrackListCoverArtOnPages: (v) => set({ trackListCoverArtOnPages: v }),
       showBitrate: true,
       setShowBitrate: (v) => set({ showBitrate: v }),
+      showExplicitBadges: true,
+      setShowExplicitBadges: (v) => set({ showExplicitBadges: v }),
+      blurExplicitCovers: false,
+      setBlurExplicitCovers: (v) => set({ blurExplicitCovers: v }),
       showCardTooltips: true,
       setShowCardTooltips: (v) => set({ showCardTooltips: v }),
+      trackRowPlayClick: 'single',
+      setTrackRowPlayClick: (v) => set({ trackRowPlayClick: v }),
+      touchpadSwipeNavigation: true,
+      setTouchpadSwipeNavigation: (v) => set({ touchpadSwipeNavigation: v }),
       buttonSize: 'large',
       setButtonSize: (v) => set({ buttonSize: v }),
       showRemainingTime: false,

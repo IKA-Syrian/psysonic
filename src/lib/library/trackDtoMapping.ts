@@ -4,6 +4,38 @@ import type { SubsonicSong } from '@/lib/api/subsonicTypes';
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+function moodValues(value: unknown): string[] {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? [value]
+      : [];
+
+  return values.filter(
+    (item): item is string => typeof item === 'string',
+  );
+}
+
+function nativeMoodTags(raw: Record<string, unknown>): string[] | null {
+  const tags = isObject(raw.tags) ? raw.tags : null;
+  if (!tags) return null;
+  return moodValues(tags.mood);
+}
+
+/** True when `column` is the snapshot value plus the suffix from Navidrome's `tags.<tag>`. */
+function columnAppendsTag(
+  column: string | undefined,
+  snapshot: unknown,
+  raw: Record<string, unknown>,
+  tag: 'subtitle' | 'albumversion',
+): boolean {
+  if (!column || typeof snapshot !== 'string' || column === snapshot) return false;
+  const tags = isObject(raw.tags) ? raw.tags[tag] : undefined;
+  const values = Array.isArray(tags) ? tags : [tags];
+  const hasTag = values.some(value => typeof value === 'string' && value.trim() !== '');
+  return hasTag && column.startsWith(`${snapshot} `);
+}
+
 /**
  * Cover art id for a library track — mirrors Rust cover backfill
  * (`COALESCE(cover_art_id, album_id)`). Many servers only expose album art.
@@ -54,6 +86,21 @@ export function trackToSong(t: LibraryTrackDto): SubsonicSong {
   // `rawJson` is the authoritative original song — let it override the
   // hot-column fallbacks (it carries OpenSubsonic extras too).
   const merged: SubsonicSong = { ...base, ...(raw as Partial<SubsonicSong>) };
+  // Fresh mapping boundaries stamp explicit provenance when they observed mood
+  // state. Trust that canonical value even when sparse merging preserved an
+  // unrelated native tags object. Unmarked composite rows keep the conservative
+  // v2 rule until the online reconciler establishes current server truth.
+  if (raw._psysonicMoodsAuthoritative === true) {
+    merged.moods = moodValues(raw.moods);
+  } else {
+    const nativeMoods = nativeMoodTags(raw);
+    if (nativeMoods !== null) merged.moods = nativeMoods;
+  }
+  // Rows from Navidrome's native API keep the bare title / album in `rawJson`,
+  // while the columns carry the subtitle / album version appended the way the
+  // Subsonic API does it (issue #1638). Only that suffixed form beats the snapshot.
+  if (columnAppendsTag(t.title, raw.title, raw, 'subtitle')) merged.title = t.title;
+  if (columnAppendsTag(t.album, raw.album, raw, 'albumversion')) merged.album = t.album;
   const coverArt = resolveTrackCoverArtId(t, merged);
   if (coverArt) merged.coverArt = coverArt;
   if (resolvedBpm != null) merged.bpm = resolvedBpm;

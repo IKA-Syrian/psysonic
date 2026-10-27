@@ -182,12 +182,7 @@ pub async fn rename_device_files(
 ) -> Result<Vec<RenameResult>, String> {
     let _device_sync_guard = device_sync_operation_guard().await;
     let root = std::path::PathBuf::from(&target_dir);
-    if !root.exists() {
-        return Err("VOLUME_NOT_FOUND".to_string());
-    }
-    if !is_path_on_mounted_volume(&root) {
-        return Err("NOT_MOUNTED_VOLUME".to_string());
-    }
+    ensure_mounted_target(&root)?;
     Ok(rename_pairs_within_root(&root, pairs))
 }
 
@@ -303,14 +298,137 @@ pub fn is_path_on_mounted_volume(path: &std::path::Path) -> bool {
     best_len > 0
 }
 
+/// Marks a folder on the system disk that the user explicitly chose as a sync
+/// target. A USB mount point that fell back to `/` after an unmount never
+/// carries it, so the unmounted-device protection above still holds.
+pub(crate) const LOCAL_TARGET_MARKER: &str = ".psysonic-local-target";
+
+pub(crate) fn is_marked_local_target(path: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(path.join(LOCAL_TARGET_MARKER))
+        .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
+}
+
 pub(super) fn ensure_mounted_target(path: &std::path::Path) -> Result<(), String> {
     if !path.is_dir() {
         return Err("VOLUME_NOT_FOUND".to_string());
     }
-    if !is_path_on_mounted_volume(path) {
+    if !is_path_on_mounted_volume(path) && !is_marked_local_target(path) {
         return Err("NOT_MOUNTED_VOLUME".to_string());
     }
     Ok(())
+}
+
+/// Free space of the volume holding `path`, including the system volume, so
+/// local-folder targets get the same capacity check as removable drives.
+pub(crate) fn target_available_space(path: &std::path::Path) -> Option<u64> {
+    use sysinfo::Disks;
+    let canonical = path.canonicalize().ok()?;
+    let disks = Disks::new_with_refreshed_list();
+    disks
+        .list()
+        .iter()
+        .filter_map(|disk| {
+            let mount = disk.mount_point().canonicalize().ok()?;
+            canonical
+                .starts_with(&mount)
+                .then(|| (mount.components().count(), disk.available_space()))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, available)| available)
+}
+
+#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceSyncTargetInfo {
+    pub exists: bool,
+    pub on_mounted_volume: bool,
+    pub local_target: bool,
+    /// The folder may be confirmed as a local target: it is empty or already
+    /// holds a Psysonic sync (see `local_target_refusal`).
+    pub local_target_allowed: bool,
+}
+
+pub(crate) fn inspect_device_sync_target_impl(path: &std::path::Path) -> DeviceSyncTargetInfo {
+    let exists = path.is_dir();
+    DeviceSyncTargetInfo {
+        exists,
+        on_mounted_volume: exists && is_path_on_mounted_volume(path),
+        local_target: exists && is_marked_local_target(path),
+        local_target_allowed: exists && local_target_refusal(path).is_none(),
+    }
+}
+
+/// Reports whether a chosen folder can be synced to as-is, or needs the user to
+/// confirm it as a local folder first.
+#[tauri::command]
+#[specta::specta]
+pub fn inspect_device_sync_target(dest_dir: String) -> DeviceSyncTargetInfo {
+    inspect_device_sync_target_impl(std::path::Path::new(&dest_dir))
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .and_then(|home| home.canonicalize().ok())
+}
+
+/// Files an operating system drops into any folder. Synced paths never start
+/// with them, so they do not make a folder "in use".
+fn is_folder_metadata(name: &std::ffi::OsStr) -> bool {
+    let name = name.to_string_lossy();
+    name.starts_with('.')
+        || name.eq_ignore_ascii_case("Thumbs.db")
+        || name.eq_ignore_ascii_case("desktop.ini")
+}
+
+/// Why a folder cannot become a local target, if it cannot. Only an empty
+/// folder, or one Psysonic already synced into, qualifies: a folder that
+/// already holds the user's music (`~/Music`, a server's library) must never
+/// be handed to the planner, which owns what it finds at its planned paths.
+fn local_target_refusal(path: &std::path::Path) -> Option<&'static str> {
+    let Ok(canonical) = path.canonicalize() else {
+        return Some("VOLUME_NOT_FOUND");
+    };
+    if canonical.parent().is_none() || home_dir().is_some_and(|home| home == canonical) {
+        return Some("DEVICE_SYNC_LOCAL_TARGET_INVALID");
+    }
+    if is_marked_local_target(&canonical) || canonical.join("psysonic-sync.json").is_file() {
+        return None;
+    }
+    let Ok(mut entries) = std::fs::read_dir(&canonical) else {
+        return Some("DEVICE_SYNC_LOCAL_TARGET_INVALID");
+    };
+    let in_use =
+        entries.any(|entry| entry.map_or(true, |entry| !is_folder_metadata(&entry.file_name())));
+    in_use.then_some("DEVICE_SYNC_LOCAL_TARGET_NOT_EMPTY")
+}
+
+pub(crate) fn mark_local_sync_target_impl(path: &std::path::Path) -> Result<(), String> {
+    if !path.is_dir() {
+        return Err("VOLUME_NOT_FOUND".to_string());
+    }
+    if let Some(refusal) = local_target_refusal(path) {
+        return Err(refusal.to_string());
+    }
+    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+    if is_marked_local_target(&canonical) {
+        return Ok(());
+    }
+    replace_device_text_file(
+        &canonical,
+        &canonical.join(LOCAL_TARGET_MARKER),
+        b"Psysonic Device Sync target on a local disk. Delete this file to stop syncing here.\n",
+    )
+}
+
+/// Confirms a folder on the system disk as a sync target (see `LOCAL_TARGET_MARKER`).
+#[tauri::command]
+#[specta::specta]
+pub async fn mark_local_sync_target(dest_dir: String) -> Result<(), String> {
+    let _device_sync_guard = device_sync_operation_guard().await;
+    let _filesystem_write_guard = crate::filesystem_write_guard().await?;
+    mark_local_sync_target_impl(std::path::Path::new(&dest_dir))
 }
 
 fn path_is_within_mount(path: &std::path::Path, mount_point: &std::path::Path) -> bool {
@@ -326,13 +444,17 @@ pub struct TrackSyncInfo {
     /// the actual performer rather than the album artist.
     pub artist: String,
     /// Album artist — used for the top-level folder so compilation albums stay together.
-    /// Falls back to `artist` in the frontend when the server has no albumArtist tag.
+    /// Taken from `albumArtist`, then the OpenSubsonic `displayAlbumArtist`, then `artist`.
     #[serde(rename = "albumArtist")]
     pub album_artist: String,
     pub album: String,
     pub title: String,
     #[serde(rename = "trackNumber")]
     pub track_number: Option<u32>,
+    /// From disc 2 on, the disc prefixes the album-tree file name (`2-01 - Title`)
+    /// so equal track numbers and titles on different discs do not collide.
+    #[serde(default, rename = "discNumber")]
+    pub disc_number: Option<u32>,
     /// Duration in seconds — needed for Extended M3U (#EXTINF) playlist entries.
     #[serde(default)]
     pub duration: Option<u32>,
@@ -349,6 +471,10 @@ pub struct TrackSyncInfo {
     /// source it came from (see `build_track_path`).
     #[serde(default, rename = "flatLayout")]
     pub flat_layout: bool,
+    /// Replace an existing copy at the same path (new transcode profile or a
+    /// source file that changed on the server) instead of skipping it.
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// Summary returned by `sync_batch_to_device` after all tracks are processed.
@@ -444,15 +570,13 @@ pub(crate) fn playlist_file_path(
 /// Playlist:    `Playlists/{PlaylistName}/{PlaylistIndex:02d} - {Artist} - {Title}.{ext}`
 /// Flat:        `{AlbumArtist} - {Album} - {TrackNum:02d} - {Title}.{ext}` in the root —
 ///              the album keeps names unique and sorts tracks album by album.
+/// From disc 2 on, `{TrackNum:02d}` becomes `{Disc}-{TrackNum:02d}`.
 pub fn build_track_path(track: &TrackSyncInfo) -> String {
+    let track_num = album_track_number(track);
     if track.flat_layout {
         let album_artist = sanitize_or(&track.album_artist, "Unknown Artist");
         let album = sanitize_or(&track.album, "Unknown Album");
         let title = sanitize_or(&track.title, "Unknown Title");
-        let track_num = track
-            .track_number
-            .map(|n| format!("{:02}", n))
-            .unwrap_or_else(|| "00".to_string());
         return format!("{album_artist} - {album} - {track_num} - {title}");
     }
     let relative = match (&track.playlist_name, track.playlist_index) {
@@ -466,16 +590,25 @@ pub fn build_track_path(track: &TrackSyncInfo) -> String {
             let album_artist = sanitize_or(&track.album_artist, "Unknown Artist");
             let album = sanitize_or(&track.album, "Unknown Album");
             let title = sanitize_or(&track.title, "Unknown Title");
-            let track_num = track
-                .track_number
-                .map(|n| format!("{:02}", n))
-                .unwrap_or_else(|| "00".to_string());
             format!("{}/{}/{} - {}", album_artist, album, track_num, title)
         }
     };
     #[cfg(target_os = "windows")]
     let relative = relative.replace('/', "\\");
     relative
+}
+
+/// `07` for a single-disc album or disc 1, `2-07` from disc 2 on — disc 1 keeps
+/// the name copies have had since before discs were told apart.
+fn album_track_number(track: &TrackSyncInfo) -> String {
+    let number = track
+        .track_number
+        .map(|n| format!("{:02}", n))
+        .unwrap_or_else(|| "00".to_string());
+    match track.disc_number {
+        Some(disc) if disc > 1 => format!("{disc}-{number}"),
+        _ => number,
+    }
 }
 
 /// Computes the expected file paths for a batch of tracks under the fixed schema.

@@ -13,10 +13,13 @@ import { useAuthStore } from '@/store/authStore';
 import { resolveTrackArtistRefs } from '@/features/playback/utils/playback/trackArtistRefs';
 import { useTrackPlayStats } from '@/features/playback';
 import { OptionalBrowseTrackRowCoverThumb } from '@/cover/TrackRowCoverThumb';
+import { ExplicitTitle } from '@/ui/ExplicitBadge';
+import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
+import { isExplicit } from '@/lib/media/explicitStatus';
 
 export interface FavoriteSongRowCallbacks {
   activate: (song: SubsonicSong, index: number, e: React.MouseEvent) => void;
-  dblOrbit: (song: SubsonicSong, e: React.MouseEvent) => void;
+  doubleClick: (song: SubsonicSong, index: number, e: React.MouseEvent) => void;
   context: (song: SubsonicSong, e: React.MouseEvent) => void;
   mouseDownRow: (song: SubsonicSong, e: React.MouseEvent) => void;
   toggleSelect: (songId: string, index: number, shift: boolean) => void;
@@ -41,14 +44,17 @@ interface Props {
   ratingValue: number;
   isPreviewing: boolean;
   previewStarted: boolean;
-  orbitActive: boolean;
+  /** Double click does something (Orbit add, or play in double-click mode). */
+  doubleClickActive: boolean;
+  /** Set only on the list's cursor row (`useTrackListCursor`). */
+  cursorRowId?: string;
   cb: FavoriteSongRowCallbacks;
 }
 
 function FavoriteSongRow({
   song, index: i, visibleCols, gridStyle, showBitrate,
   isActive, showEq, isSelected, inSelectMode,
-  ratingValue, isPreviewing, previewStarted, orbitActive, cb,
+  ratingValue, isPreviewing, previewStarted, doubleClickActive, cursorRowId, cb,
 }: Props) {
   const { t } = useTranslation();
   // `song.serverId` is only stamped on owned/multi-server rows.
@@ -57,11 +63,12 @@ function FavoriteSongRow({
 
   return (
     <div
-      className={`track-row track-row-va track-row-with-actions${isActive ? ' active' : ''}${isSelected ? ' bulk-selected' : ''}`}
+      id={cursorRowId}
+      className={`track-row track-row-va track-row-with-actions${isActive ? ' active' : ''}${isSelected ? ' bulk-selected' : ''}${cursorRowId ? ' track-row--cursor' : ''}`}
       style={gridStyle}
       role="row"
       onClick={e => cb.activate(song, i, e)}
-      onDoubleClick={orbitActive ? e => cb.dblOrbit(song, e) : undefined}
+      onDoubleClick={doubleClickActive ? e => cb.doubleClick(song, i, e) : undefined}
       onContextMenu={e => cb.context(song, e)}
       onMouseDown={e => cb.mouseDownRow(song, e)}
     >
@@ -104,7 +111,8 @@ function FavoriteSongRow({
                   : <ChevronRight size={14} className="playlist-suggestion-preview-icon playlist-suggestion-preview-icon-play" />}
               </button>
               <OptionalBrowseTrackRowCoverThumb song={song} size="dense" />
-              <span className="track-title">{song.title}</span>
+              <ExplicitCoverVeil explicit={isExplicit(song)} />
+              <ExplicitTitle status={song.explicitStatus}><span className="track-title">{song.title}</span></ExplicitTitle>
             </div>
           );
           case 'artist': return (

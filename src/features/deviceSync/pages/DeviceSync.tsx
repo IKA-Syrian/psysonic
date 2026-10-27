@@ -1,8 +1,10 @@
 import type { SubsonicSong } from '@/lib/api/subsonicTypes';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { useRefElementClientWidth } from '@/lib/hooks/useResizeClientHeight';
 import { useTranslation } from 'react-i18next';
 import {
   deviceSyncSourceKey,
+  sameDeviceSyncTranscode,
   useDeviceSyncStore,
   type DeviceSyncSource,
 } from '@/features/deviceSync/store/deviceSyncStore';
@@ -30,13 +32,22 @@ import {
   type SyncDelta,
 } from '@/features/deviceSync/utils/runDeviceSyncExecution';
 import { runDeviceSyncChooseFolder } from '@/features/deviceSync/utils/runDeviceSyncChooseFolder';
-import DeviceSyncHeader from '@/features/deviceSync/components/DeviceSyncHeader';
+import { HardDriveUpload } from 'lucide-react';
+import DeviceSyncTargetBar from '@/features/deviceSync/components/DeviceSyncTargetBar';
+import DeviceSyncOptions from '@/features/deviceSync/components/DeviceSyncOptions';
+import DeviceSyncTargetEmpty from '@/features/deviceSync/components/DeviceSyncTargetEmpty';
+import DeviceSyncActionBar from '@/features/deviceSync/components/DeviceSyncActionBar';
 import DeviceSyncPreSyncModal from '@/features/deviceSync/components/DeviceSyncPreSyncModal';
 import DeviceSyncMigrationModal from '@/features/deviceSync/components/DeviceSyncMigrationModal';
 import DeviceSyncBrowserPanel from '@/features/deviceSync/components/DeviceSyncBrowserPanel';
 import DeviceSyncDevicePanel from '@/features/deviceSync/components/DeviceSyncDevicePanel';
 import DeviceSyncLegacyRecovery from '@/features/deviceSync/components/DeviceSyncLegacyRecovery';
 import DeviceSyncOwnerRepair from '@/features/deviceSync/components/DeviceSyncOwnerRepair';
+
+/** Below this page width the two lists stack (page padding included). */
+const DEVICE_SYNC_NARROW_WIDTH = 780;
+/** Below this the source tabs show icons only. */
+const DEVICE_SYNC_TINY_WIDTH = 440;
 
 // ─── component ───────────────────────────────────────────────────────────────
 
@@ -48,6 +59,8 @@ export default function DeviceSync() {
   const playlistPathMode = useDeviceSyncStore(s => s.playlistPathMode);
   const syncedLayoutMode = useDeviceSyncStore(s => s.syncedLayoutMode);
   const syncedPlaylistPathMode = useDeviceSyncStore(s => s.syncedPlaylistPathMode);
+  const transcode        = useDeviceSyncStore(s => s.transcode);
+  const syncedTranscode  = useDeviceSyncStore(s => s.syncedTranscode);
   const sources          = useDeviceSyncStore(s => s.sources);
   const checkedIds       = useDeviceSyncStore(s => s.checkedIds);
   const pendingDeletion  = useDeviceSyncStore(s => s.pendingDeletion);
@@ -57,8 +70,9 @@ export default function DeviceSync() {
   const pendingPlanChecked = useDeviceSyncStore(s => s.pendingPlanChecked);
   const deviceFilePaths  = useDeviceSyncStore(s => s.deviceFilePaths);
   const scanning         = useDeviceSyncStore(s => s.scanning);
+  const deviceHasLegacyTemplate = useDeviceSyncStore(s => s.deviceHasLegacyTemplate);
   const {
-    setTargetDir, setLayoutMode, setPlaylistPathMode, addSource, removeSource,
+    setTargetDir, setLayoutMode, setPlaylistPathMode, setTranscode, addSource, removeSource,
     toggleChecked, setCheckedIds, markForDeletion,
     unmarkDeletion,
   } = useDeviceSyncStore.getState();
@@ -73,7 +87,7 @@ export default function DeviceSync() {
   const [search, setSearch]                 = useState('');
   const resetSearch = useCallback(() => setSearch(''), []);
   // ─── Removable drive detection ──────────────────────────────────────────
-  const { drives, drivesLoading, activeDrive, driveDetected, refreshDrives } =
+  const { drives, drivesLoading, activeDrive, driveDetected, targetIsLocal, refreshDrives } =
     useDeviceSyncDrives(targetDir);
 
   const [preSyncOpen, setPreSyncOpen] = useState(false);
@@ -90,6 +104,8 @@ export default function DeviceSync() {
     tracks: [] as SubsonicSong[],
     deletePaths: [],
     deferredDeletePaths: [],
+    moveCount: 0,
+    skippedCount: 0,
     playlists: [],
     manifestFiles: [],
     manifestPlaylists: [],
@@ -105,9 +121,15 @@ export default function DeviceSync() {
   const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
 
   const isRunning = deviceSyncJobIsActive(jobStatus);
-  // The M3U path style only matters where playlists point at shared tracks.
+  // The M3U path style only matters where playlists point at shared tracks,
+  // or everywhere once full paths are involved.
+  const pathStyleMatters = layoutMode !== 'self-contained'
+    || playlistPathMode === 'absolute'
+    || syncedPlaylistPathMode === 'absolute';
   const configurationDirty = layoutMode !== syncedLayoutMode
-    || (layoutMode !== 'self-contained' && playlistPathMode !== syncedPlaylistPathMode);
+    || (pathStyleMatters && playlistPathMode !== syncedPlaylistPathMode);
+  // A new format or bitrate touches every file, not just playlists.
+  const transcodeDirty = syncedTranscode !== null && !sameDeviceSyncTranscode(transcode, syncedTranscode);
 
   // Browser (playlists / albums / artists tabs + their loaders + debounced search)
   const {
@@ -129,7 +151,7 @@ export default function DeviceSync() {
     t,
     activeDrive
       ? `${activeDrive.mount_point}\0${activeDrive.name}\0${activeDrive.total_space}\0${activeDrive.file_system}`
-      : null,
+      : targetIsLocal && targetDir ? `local\0${targetDir}` : null,
   );
 
   // Follow the owning server when it changes address, before anything reads
@@ -139,6 +161,7 @@ export default function DeviceSync() {
   // Source status (path map + derived synced/pending/deletion)
   const { sourcePathsMap, sourceStatuses } = useDeviceSyncSourceStatuses(
     targetDir, sources, pendingDeletion, deviceFilePaths, layoutMode, configurationDirty,
+    transcode, transcodeDirty,
   );
 
   // ─── Desired State / Diff Logic ─────────────────────────────────────────
@@ -155,7 +178,7 @@ export default function DeviceSync() {
       const isSynced = sourceStatuses.get(sourceKey) === 'synced';
       const pathsOnDisk = sourcePathsMap.get(sourceKey)?.filter(p => deviceFilePaths.includes(p)).length || 0;
       
-      if (configurationDirty || pathsOnDisk > 0 || isSynced) {
+      if (configurationDirty || transcodeDirty || pathsOnDisk > 0 || isSynced) {
         // Source currently has physical footprint. Stage for deletion.
         markForDeletion([sourceKey]);
       } else {
@@ -170,7 +193,7 @@ export default function DeviceSync() {
         addSource(source); // Trigger clean pending install state
       }
     }
-  }, [sources, pendingDeletion, sourceStatuses, sourcePathsMap, deviceFilePaths, configurationDirty, markForDeletion, removeSource, unmarkDeletion, addSource]);
+  }, [sources, pendingDeletion, sourceStatuses, sourcePathsMap, deviceFilePaths, configurationDirty, transcodeDirty, markForDeletion, removeSource, unmarkDeletion, addSource]);
 
   // ─── Migration handlers ─────────────────────────────────────────────────
 
@@ -202,7 +225,7 @@ export default function DeviceSync() {
   // ─── Sync (non-blocking) ────────────────────────────────────────────────
 
   const promptSyncSummary = () => runDeviceSyncSummaryPrompt({
-    targetDir, sources, pendingDeletion, layoutMode, playlistPathMode, t,
+    targetDir, sources, pendingDeletion, layoutMode, playlistPathMode, transcode, t,
     setPreSyncLoading, setPreSyncOpen, setSyncDelta,
   });
 
@@ -233,6 +256,13 @@ export default function DeviceSync() {
     return t('deviceSync.syncButton'); // both zero — button will be disabled
   }, [pendingCount, deletionCount, t]);
 
+  // The page width, not the window: sidebar and queue panel take their share.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pageWidth = useRefElementClientWidth(pageRef);
+  const pageLayout = pageWidth < DEVICE_SYNC_TINY_WIDTH
+    ? 'tiny'
+    : pageWidth < DEVICE_SYNC_NARROW_WIDTH ? 'narrow' : 'wide';
+
   const actionButtonDisabled =
     !targetDir ||
     sources.length === 0 ||
@@ -243,30 +273,50 @@ export default function DeviceSync() {
     (pendingCount === 0 && deletionCount === 0 && !pendingPlan);
 
   return (
-    <div className="device-sync-page">
+    <div className="device-sync-page" ref={pageRef} data-layout={pageLayout}>
 
-      <DeviceSyncHeader
+      <div className="device-sync-page-title">
+        <HardDriveUpload size={20} aria-hidden="true" />
+        <h1>{t('deviceSync.title')}</h1>
+      </div>
+
+      <DeviceSyncTargetBar
         targetDir={targetDir}
         setTargetDir={setTargetDir}
-        sources={sources}
         drives={drives}
         drivesLoading={drivesLoading}
         activeDrive={activeDrive}
         refreshDrives={refreshDrives}
         scanDevice={scanDevice}
         handleChooseFolder={handleChooseFolder}
-        startMigrationPreview={startMigrationPreview}
+        targetIsLocal={targetIsLocal}
+        isRunning={isRunning}
+      />
+
+      <DeviceSyncOptions
         layoutMode={layoutMode}
         playlistPathMode={playlistPathMode}
         setLayoutMode={setLayoutMode}
         setPlaylistPathMode={setPlaylistPathMode}
+        transcode={transcode}
+        setTranscode={setTranscode}
+        targetIsLocal={targetIsLocal}
         isRunning={isRunning}
+        showMigrate={Boolean(targetDir) && sources.length > 0 && deviceHasLegacyTemplate}
+        startMigrationPreview={startMigrationPreview}
       />
 
       <DeviceSyncLegacyRecovery />
       <DeviceSyncOwnerRepair />
 
-      {/* ── Main ── */}
+      {!targetDir ? (
+        <DeviceSyncTargetEmpty
+          drivesLoading={drivesLoading}
+          isRunning={isRunning}
+          refreshDrives={refreshDrives}
+          handleChooseFolder={handleChooseFolder}
+        />
+      ) : (
       <div className="device-sync-main">
 
         <DeviceSyncBrowserPanel
@@ -303,25 +353,33 @@ export default function DeviceSync() {
           toggleChecked={toggleChecked}
           allChecked={allChecked}
           toggleAll={toggleAll}
+          isRunning={isRunning}
+          handleToggleSource={handleToggleSource}
+          markForDeletion={markForDeletion}
+          unmarkDeletion={unmarkDeletion}
+        />
+
+      </div>
+      )}
+
+      {targetDir && (
+        <DeviceSyncActionBar
           syncedCount={syncedCount}
           pendingCount={pendingCount}
           deletionCount={deletionCount}
+          checkedCount={checkedIds.length}
           isRunning={isRunning}
           actionButtonLabel={actionButtonLabel}
           actionButtonDisabled={actionButtonDisabled}
           promptSyncSummary={promptSyncSummary}
           handleMarkCheckedForDeletion={handleMarkCheckedForDeletion}
-          handleToggleSource={handleToggleSource}
-          markForDeletion={markForDeletion}
-          unmarkDeletion={unmarkDeletion}
           jobStatus={jobStatus}
           jobDone={jobDone}
           jobSkip={jobSkip}
           jobFail={jobFail}
           jobTotal={jobTotal}
         />
-
-      </div>
+      )}
 
       <DeviceSyncPreSyncModal
         preSyncOpen={preSyncOpen}

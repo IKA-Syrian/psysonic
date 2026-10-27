@@ -30,6 +30,7 @@ import {
   resolvePlaybackUrlForTrack,
 } from '@/features/playback/utils/playback/resolvePlaybackUrl';
 import { requestGaplessChainPreload } from '@/features/playback/store/gaplessChainPreload';
+import { resolveGaplessSuccessor } from '@/features/playback/store/gaplessSuccessor';
 import {
   applyGaplessQueueAdvance,
   maybeReconcileGaplessFromProgress,
@@ -39,6 +40,12 @@ import {
   resetGaplessProgressTracking,
 } from '@/features/playback/store/gaplessProgressTracking';
 import { showToast } from '@/lib/dom/toast';
+import {
+  consumeSleepBoundaryAtTrackEnd,
+  handleSleepBoundaryProgress,
+  pauseAtSleepBoundaryInsteadOfAdvance,
+} from '@/features/playback/store/sleepBoundary';
+import { isPrivateModeActive } from '@/features/privateMode';
 import { useAuthStore } from '@/store/authStore';
 import { indexKeyBelongsToServer } from '@/store/localPlaybackResolve';
 import { effectiveStreamCapKbps } from '@/features/playback/utils/playback/streamQualityResolve';
@@ -102,7 +109,6 @@ import { armCrossfadeDynamicOverlap, getCrossfadeTransition } from '@/features/p
 import { armAutodjMixing } from '@/features/playback/store/autodjTransitionUi';
 import {
   queueItemIdentityKey,
-  sameQueueTrack,
 } from '@/features/playback/utils/playback/queueIdentity';
 import {
   clearUnavailablePlaybackFailures,
@@ -366,9 +372,11 @@ export function handleAudioProgress(
     }
   }
 
-  // Scrobble at the configured percentage: Music Network + Navidrome
+  // Scrobble at the configured percentage: Music Network + Navidrome. Private
+  // mode leaves `scrobbled` unset, so switching it off mid-track still counts
+  // the play once the threshold is (or already was) reached.
   const threshold = useAuthStore.getState().scrobbleThresholdPercent / 100;
-  if (!buffering && progress >= threshold && !store.scrobbled) {
+  if (!buffering && progress >= threshold && !store.scrobbled && !isPrivateModeActive()) {
     usePlayerStore.setState({ scrobbled: true });
     submitPlaybackTrackScrobble(track, store.queueItems, store.queueIndex);
   }
@@ -397,6 +405,10 @@ export function handleAudioProgress(
   // A pending seek target is display-only. Do not preload, crossfade, scrobble,
   // or report remote progress until the engine confirms decoded PCM is audible.
   if (buffering) return;
+
+  // A sleep timer bound to the track or album end pauses just before the
+  // boundary, so nothing below gets to start the next track.
+  if (handleSleepBoundaryProgress(current_time, dur)) return;
 
   // Pre-buffer / pre-chain next track for gapless and crossfade.
   const {
@@ -455,6 +467,8 @@ export function handleAudioProgress(
         // fade, so we leave the gen guard unset and re-check on later ticks — if
         // B readies before A ends we fade then; if never, A plays out (engine
         // timer suppressed) and the source-exhaustion end gives a clean cut.
+        // Trailing silence can put this point before the sleep pause: pause here.
+        if (current_time >= triggerAt && pauseAtSleepBoundaryInsteadOfAdvance()) return;
         if (
           current_time >= triggerAt
           && crossfadeTrimAdvanceGen !== gen
@@ -499,19 +513,18 @@ export function handleAudioProgress(
 
   if (gaplessEnabled) {
     const { queueItems, queueIndex, repeatMode } = store;
-    const nextIdx = queueIndex + 1;
     // Next track for preload/chain. The resolver bridge keeps the window around
     // queueIndex warm, so the next ref is cache-hot; resolveQueueTrack falls
     // back to a placeholder (correct trackId, so URL building still works) on a
     // cold miss. current track = `track` (full) — never resolved.
-    const nextRef = repeatMode === 'one'
-      ? null
-      : (nextIdx < queueItems.length ? queueItems[nextIdx] : (repeatMode === 'all' ? queueItems[0] : null));
-    const nextTrack = repeatMode === 'one'
-      ? track
-      : (nextRef ? resolveQueueTrack(nextRef) : null);
+    const { nextTrack, newIndex: nextIdx } = resolveGaplessSuccessor(
+      queueItems, queueIndex, repeatMode, track,
+    );
+    const nextRef = nextTrack ? queueItems[nextIdx] ?? null : null;
 
-    if (nextTrack && !sameQueueTrack(nextTrack, track)) {
+    // Track identity is not playback identity: repeat-one and consecutive
+    // duplicate slots still need a separately decoded source at the boundary.
+    if (nextTrack) {
       // Gapless backup: keep next-track bytes ready even if chain/decode misses
       // the boundary. Start earlier for larger files / slower conservative link.
       const estBytes = (() => {
@@ -628,6 +641,8 @@ export function handleAudioEnded(): void {
     currentTime: 0,
     buffered: 0,
   });
+  // The track ran out before its sleep pause landed: stop here, don't move on.
+  if (consumeSleepBoundaryAtTrackEnd(storeBeforeAdvance)) return;
   setTimeout(() => {
     void (async () => {
       if (repeatMode === 'one' && currentTrack) {
@@ -663,6 +678,8 @@ export function handleAudioTrackSwitched(duration: number): void {
   setIsAudioPaused(false);
 
   const store = usePlayerStore.getState();
+  // The engine moved on before the sleep pause landed: pause the new track at once.
+  const pauseAfterSwitch = consumeSleepBoundaryAtTrackEnd(store);
   scrobbleCurrentTrackAtNaturalBoundary();
   if (store.currentTrack?.id) {
     useAuthStore.getState().clearSkipStarManualCountForTrack(
@@ -675,6 +692,7 @@ export function handleAudioTrackSwitched(duration: number): void {
     engineDurationHint: duration,
     source: 'track-switched',
   });
+  if (pauseAfterSwitch) usePlayerStore.getState().pause();
 }
 
 export function handleAudioError(message: string): void {

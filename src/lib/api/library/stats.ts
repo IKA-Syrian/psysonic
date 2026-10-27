@@ -10,8 +10,16 @@ import { mapScopePairs } from './scopeReads';
 import type {
   CatalogYearBounds,
   GenreAlbumCountRow,
+  MoodAlbumCountRow,
+  LabelAlbumCountRow,
   LibraryGenreAlbumsRequest,
   LibraryGenreAlbumsResponse,
+  LibraryMoodAlbumsRequest,
+  LibraryMoodAlbumsResponse,
+  LibraryMoodTracksRequest,
+  LibraryMoodTracksResponse,
+  LibraryLabelAlbumsRequest,
+  LibraryLabelAlbumsResponse,
   PlaySessionInput,
   PlaySessionYearSummary,
   PlaySessionHeatmapDay,
@@ -46,6 +54,24 @@ export async function libraryGetGenreAlbumCounts(args: {
   return res.data;
 }
 
+export async function libraryGetMoodAlbumCounts(args: {
+  serverId: string;
+  libraryScope?: string;
+  libraryScopes?: string[];
+}): Promise<MoodAlbumCountRow[]> {
+  const indexKey = serverIndexKeyForId(args.serverId);
+
+  const res = await commands.libraryGetMoodAlbumCounts(
+    indexKey,
+    args.libraryScope ?? null,
+    args.libraryScopes ?? null,
+  );
+
+  if (res.status === 'error') throw new Error(res.error);
+
+  return res.data;
+}
+
 /** Paginated albums for one genre from the local track index. */
 export function libraryListAlbumsByGenre(
   request: LibraryGenreAlbumsRequest,
@@ -58,6 +84,112 @@ export function libraryListAlbumsByGenre(
     request: {
       serverId: indexKey,
       genre: request.genre,
+      libraryScope: request.libraryScope ?? undefined,
+      libraryScopes,
+      sort: request.sort ?? [],
+      limit: request.limit ?? 50,
+      offset: request.offset ?? 0,
+      includeTotal: request.includeTotal ?? false,
+      countOnly: request.countOnly ?? false,
+    },
+  }).then(response => ({
+    ...response,
+    albums: response.albums.map(album => ({
+      ...album,
+      serverId: mapServerIdFromIndexKey(album.serverId, request.serverId),
+    })),
+  }));
+}
+
+/** Paginated albums for one file mood from the local track-mood index. */
+export function libraryListAlbumsByMood(
+  request: LibraryMoodAlbumsRequest,
+): Promise<LibraryMoodAlbumsResponse> {
+  const indexKey = serverIndexKeyForId(request.serverId);
+
+  const libraryScopes = request.libraryScopes
+    ? mapScopePairs(request.libraryScopes, request.serverId)
+    : undefined;
+
+  return invoke<LibraryMoodAlbumsResponse>('library_list_albums_by_mood', {
+    request: {
+      serverId: indexKey,
+      mood: request.mood,
+      libraryScope: request.libraryScope ?? undefined,
+      libraryScopes,
+      sort: request.sort ?? [],
+      limit: request.limit ?? 50,
+      offset: request.offset ?? 0,
+      includeTotal: request.includeTotal ?? false,
+      countOnly: request.countOnly ?? false,
+    },
+  }).then(response => ({
+    ...response,
+    albums: response.albums.map(album => ({
+      ...album,
+      serverId: mapServerIdFromIndexKey(
+        album.serverId,
+        request.serverId,
+      ),
+    })),
+  }));
+}
+
+/** Paginated tracks for one file mood from the local track-mood index. */
+export function libraryListTracksByMood(
+  request: LibraryMoodTracksRequest,
+): Promise<LibraryMoodTracksResponse> {
+  const indexKey = serverIndexKeyForId(request.serverId);
+  const libraryScopes = request.libraryScopes
+    ? mapScopePairs(request.libraryScopes, request.serverId)
+    : undefined;
+  return invoke<LibraryMoodTracksResponse>('library_list_tracks_by_mood', {
+    request: {
+      serverId: indexKey,
+      mood: request.mood,
+      libraryScope: request.libraryScope ?? undefined,
+      libraryScopes,
+      limit: request.limit ?? 100,
+      offset: request.offset ?? 0,
+      includeTotal: request.includeTotal ?? false,
+      countOnly: request.countOnly ?? false,
+    },
+  }).then(response => ({
+    ...response,
+    tracks: response.tracks.map(track => ({
+      ...track,
+      serverId: mapServerIdFromIndexKey(track.serverId, request.serverId),
+    })),
+  }));
+}
+
+export async function libraryGetLabelAlbumCounts(args: {
+  serverId: string;
+  libraryScope?: string;
+  libraryScopes?: string[];
+}): Promise<LabelAlbumCountRow[]> {
+  const indexKey = serverIndexKeyForId(args.serverId);
+  const res = await commands.libraryGetLabelAlbumCounts(
+    indexKey,
+    args.libraryScope ?? null,
+    args.libraryScopes ?? null,
+  );
+  if (res.status === 'error') throw new Error(res.error);
+  return res.data;
+}
+
+/** Paginated albums for one record label from the local track-label index. */
+export function libraryListAlbumsByLabel(
+  request: LibraryLabelAlbumsRequest,
+): Promise<LibraryLabelAlbumsResponse> {
+  const indexKey = serverIndexKeyForId(request.serverId);
+  const libraryScopes = request.libraryScopes
+    ? mapScopePairs(request.libraryScopes, request.serverId)
+    : undefined;
+  return invoke<LibraryLabelAlbumsResponse>('library_list_albums_by_label', {
+    request: {
+      serverId: indexKey,
+      label: request.label,
       libraryScope: request.libraryScope ?? undefined,
       libraryScopes,
       sort: request.sort ?? [],

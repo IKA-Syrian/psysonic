@@ -18,7 +18,7 @@ Psysonic is built primarily for **Navidrome** and also works with **Gonic**, **A
 
 <br><br>
 
-**Available languages:** English, German, Spanish, French, Norwegian Bokmål, Dutch, Romanian, Russian, Chinese, Japanese, Hungarian, Polish, Bulgarian, Italian and Ukrainian.
+**Available languages:** English, German, Spanish, French, Norwegian Bokmål, Dutch, Romanian, Russian, Chinese, Japanese, Hungarian, Polish, Bulgarian, Italian, Ukrainian and Greek.
 
 More translations are added over time.
 
@@ -225,6 +225,8 @@ Homebrew currently supports x86_64 Linux.
 - **NixOS:** [flake installation guide](nixos-install.md) and [Cachix cache](https://psysonic.cachix.org)
 
 > **AppImage runs under X11/XWayland** — it pins `GDK_BACKEND=x11` for a stable WebKitGTK stack. For a native-Wayland launch, use the `.deb`, `.rpm`, AUR, or Nix packages, which follow your session's display server.
+>
+> **AppImage uses your system WebKitGTK when you have one** — if `libwebkit2gtk-4.1` is installed, the AppImage launches against it instead of the copy it ships, which is what makes it work on Fedora 44 (including atomic variants such as Bluefin), where the bundled build cannot start. Without it the bundled copy is used, unchanged. Should the system one ever misbehave, `PSYSONIC_FORCE_BUNDLED_WEBKIT=1 ./Psysonic_*.AppImage` goes back to the bundled stack.
 
 ## Windows
 
@@ -257,6 +259,8 @@ brew install --cask psysonic
 # Development
 
 Contributor expectations (PRs, CI, Tauri boundary, UI): [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Building from source needs **Rust 1.98 or newer**.
 
 ```bash
 git clone https://github.com/Psysonic/psysonic.git

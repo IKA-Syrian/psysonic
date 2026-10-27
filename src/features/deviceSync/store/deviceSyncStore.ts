@@ -33,7 +33,54 @@ export interface DeviceSyncSource {
 }
 
 export type DeviceSyncLayoutMode = 'self-contained' | 'shared-album-tree' | 'flat';
-export type DeviceSyncPlaylistPathMode = 'playlist-relative' | 'device-rooted';
+export type DeviceSyncPlaylistPathMode = 'playlist-relative' | 'device-rooted' | 'absolute';
+
+const DEVICE_SYNC_PLAYLIST_PATH_MODES: readonly DeviceSyncPlaylistPathMode[] = [
+  'playlist-relative', 'device-rooted', 'absolute',
+];
+
+function isDeviceSyncPlaylistPathMode(value: unknown): value is DeviceSyncPlaylistPathMode {
+  return DEVICE_SYNC_PLAYLIST_PATH_MODES.includes(value as DeviceSyncPlaylistPathMode);
+}
+
+/** Output format of synced files; `original` copies the server file as-is. */
+export type DeviceSyncTranscodeFormat = 'original' | 'mp3' | 'aac' | 'opus';
+
+export const DEVICE_SYNC_TRANSCODE_FORMATS: readonly DeviceSyncTranscodeFormat[] = [
+  'original', 'mp3', 'aac', 'opus',
+];
+
+/** Bitrate caps offered for transcoded copies (kbps); `0` lets the server choose. */
+export const DEVICE_SYNC_TRANSCODE_BITRATES = [320, 256, 192, 128, 96, 64, 0] as const;
+
+export interface DeviceSyncTranscode {
+  format: DeviceSyncTranscodeFormat;
+  maxBitRateKbps: number;
+}
+
+export const DEFAULT_DEVICE_SYNC_TRANSCODE: DeviceSyncTranscode = { format: 'original', maxBitRateKbps: 320 };
+
+export function sanitizeDeviceSyncTranscode(value: unknown): DeviceSyncTranscode {
+  const candidate = (value ?? {}) as Partial<DeviceSyncTranscode>;
+  const format = DEVICE_SYNC_TRANSCODE_FORMATS.includes(candidate.format as DeviceSyncTranscodeFormat)
+    ? candidate.format as DeviceSyncTranscodeFormat
+    : DEFAULT_DEVICE_SYNC_TRANSCODE.format;
+  const maxBitRateKbps = (DEVICE_SYNC_TRANSCODE_BITRATES as readonly number[]).includes(candidate.maxBitRateKbps as number)
+    ? candidate.maxBitRateKbps as number
+    : DEFAULT_DEVICE_SYNC_TRANSCODE.maxBitRateKbps;
+  return { format, maxBitRateKbps };
+}
+
+/** Two profiles produce the same files; originals ignore the bitrate. */
+export function sameDeviceSyncTranscode(a: DeviceSyncTranscode, b: DeviceSyncTranscode): boolean {
+  if (a.format === 'original' || b.format === 'original') return a.format === b.format;
+  return a.format === b.format && a.maxBitRateKbps === b.maxBitRateKbps;
+}
+
+/** File extension the server produces for a profile, or `null` to keep the source suffix. */
+export function deviceSyncTargetSuffix(transcode: DeviceSyncTranscode): string | null {
+  return transcode.format === 'original' ? null : transcode.format;
+}
 
 const DEVICE_SYNC_LAYOUT_MODES: readonly DeviceSyncLayoutMode[] = ['self-contained', 'shared-album-tree', 'flat'];
 
@@ -46,6 +93,10 @@ export interface DeviceSyncManifestFile {
   relativePath: string;
   sourceKeys: string[];
   sizeBytes: number;
+  /** How the copy was produced; absent on manifests from before transcoding. */
+  transcode?: DeviceSyncTranscode | null;
+  /** Server-side source the copy was made from; absent on older manifests. */
+  source?: { size: number | null; suffix: string | null; bitRate: number | null } | null;
 }
 
 export interface DeviceSyncManifestPlaylist {
@@ -67,6 +118,8 @@ export type DeviceSyncManifest = {
   playlistPathMode?: DeviceSyncPlaylistPathMode;
   files?: unknown[];
   playlists?: unknown[];
+  /** Version 1 manifests name the custom file name template they were synced with. */
+  filenameTemplate?: string;
 };
 
 export function deviceSyncSourceKey(source: Pick<DeviceSyncSource, 'serverIndexKey' | 'type' | 'id'>): string {
@@ -175,8 +228,7 @@ function isSupportedDeviceSyncManifest(manifest: DeviceSyncManifest): boolean {
   if (manifest.canonicalIdVersion !== undefined && manifest.canonicalIdVersion !== 1) return false;
   if (manifest.layoutMode !== undefined && !isDeviceSyncLayoutMode(manifest.layoutMode)) return false;
   if (manifest.playlistPathMode !== undefined
-    && manifest.playlistPathMode !== 'playlist-relative'
-    && manifest.playlistPathMode !== 'device-rooted') return false;
+    && !isDeviceSyncPlaylistPathMode(manifest.playlistPathMode)) return false;
   return true;
 }
 
@@ -209,6 +261,11 @@ function canonicalManifestSourceKey(sourceKey: string, ownerServerIndexKey: stri
   }
 }
 
+function manifestTranscode(files: readonly DeviceSyncManifestFile[]): DeviceSyncTranscode | null {
+  const recorded = files.find(file => file.transcode)?.transcode;
+  return recorded ? sanitizeDeviceSyncTranscode(recorded) : null;
+}
+
 export function deviceSyncSourcesFromManifest(
   manifest: DeviceSyncManifest | null,
 ): DeviceSyncSource[] {
@@ -225,6 +282,8 @@ export function deviceSyncManifestImport(
   files: DeviceSyncManifestFile[];
   playlists: DeviceSyncManifestPlaylist[];
   hasMaterializedPlan: boolean;
+  /** Format the device's files were last synced in, when the manifest records one. */
+  transcode: DeviceSyncTranscode | null;
   /**
    * The manifest carries an explicit layout configuration. Manifests written
    * before the layout modes existed do not, and their reported `layoutMode` /
@@ -314,6 +373,7 @@ export function deviceSyncManifestImport(
     files: normalizedFiles,
     playlists: normalizedPlaylists,
     hasMaterializedPlan,
+    transcode: manifestTranscode(normalizedFiles),
     declaresConfiguration: manifest.layoutMode !== undefined
       || manifest.playlistPathMode !== undefined,
   };
@@ -347,9 +407,14 @@ export function migrateDeviceSyncPersistedState(persisted: unknown): Partial<Dev
   return {
     ...state,
     layoutMode: isDeviceSyncLayoutMode(persistedLayout) ? persistedLayout : 'self-contained',
-    playlistPathMode: state?.playlistPathMode === 'device-rooted' ? 'device-rooted' : 'playlist-relative',
+    playlistPathMode: isDeviceSyncPlaylistPathMode(state?.playlistPathMode) ? state.playlistPathMode : 'playlist-relative',
     syncedLayoutMode: isDeviceSyncLayoutMode(persistedSyncedLayout) ? persistedSyncedLayout : 'self-contained',
-    syncedPlaylistPathMode: state?.syncedPlaylistPathMode === 'device-rooted' ? 'device-rooted' : 'playlist-relative',
+    syncedPlaylistPathMode: isDeviceSyncPlaylistPathMode(state?.syncedPlaylistPathMode)
+      ? state.syncedPlaylistPathMode
+      : 'playlist-relative',
+    transcode: sanitizeDeviceSyncTranscode(state?.transcode),
+    syncedTranscode: state?.syncedTranscode ? sanitizeDeviceSyncTranscode(state.syncedTranscode) : null,
+    targetIsLocal: false,
     sources: withPlaylistPathIds(persistedSources.filter(isDeviceSyncSource)),
     legacySources,
     legacyTargetDir: legacySources.length > 0
@@ -401,6 +466,9 @@ interface DeviceSyncState {
   playlistPathMode: DeviceSyncPlaylistPathMode;
   syncedLayoutMode: DeviceSyncLayoutMode;
   syncedPlaylistPathMode: DeviceSyncPlaylistPathMode;
+  transcode: DeviceSyncTranscode;     // desired format of synced files
+  syncedTranscode: DeviceSyncTranscode | null; // format the device was last synced in, when known
+  targetIsLocal: boolean;             // target is a confirmed folder on a local disk (not persisted)
   sources: DeviceSyncSource[];        // persistent device content list
   legacySources: LegacyDeviceSyncSource[]; // ownerless v0 selections awaiting explicit recovery
   legacyTargetDir: string | null;     // device the quarantined ownerless sources came from
@@ -413,18 +481,24 @@ interface DeviceSyncState {
   targetRevision: number;             // forces a same-path manual target recheck
   deviceFilePaths: string[];          // actual file paths found on the device (not persisted)
   scanning: boolean;                   // true while scanning the device
+  deviceHasLegacyTemplate: boolean;    // device still carries a custom-template layout (not persisted)
+  optionsExpanded: boolean;            // options section open on the Device Sync page
 
   setTargetDir: (dir: string | null) => void;
   setLayoutMode: (mode: DeviceSyncLayoutMode) => void;
   setPlaylistPathMode: (mode: DeviceSyncPlaylistPathMode) => void;
+  setTranscode: (transcode: DeviceSyncTranscode) => void;
+  setTargetIsLocal: (local: boolean) => void;
   applyManifestConfiguration: (
     layoutMode: DeviceSyncLayoutMode,
     playlistPathMode: DeviceSyncPlaylistPathMode,
     manifestDeclaresConfiguration: boolean,
+    transcode?: DeviceSyncTranscode | null,
   ) => void;
   markConfigurationSynced: (
     layoutMode: DeviceSyncLayoutMode,
     playlistPathMode: DeviceSyncPlaylistPathMode,
+    transcode?: DeviceSyncTranscode,
   ) => void;
   addSource: (source: DeviceSyncSource) => void;
   removeSource: (id: string) => void;
@@ -446,6 +520,8 @@ interface DeviceSyncState {
   removeSources: (ids: string[]) => void;
   setDeviceFilePaths: (paths: string[]) => void;
   setScanning: (v: boolean) => void;
+  setDeviceHasLegacyTemplate: (v: boolean) => void;
+  setOptionsExpanded: (v: boolean) => void;
 }
 
 export const useDeviceSyncStore = create<DeviceSyncState>()(
@@ -456,6 +532,9 @@ export const useDeviceSyncStore = create<DeviceSyncState>()(
       playlistPathMode: 'playlist-relative',
       syncedLayoutMode: 'self-contained',
       syncedPlaylistPathMode: 'playlist-relative',
+      transcode: DEFAULT_DEVICE_SYNC_TRANSCODE,
+      syncedTranscode: null,
+      targetIsLocal: false,
       sources: [],
       legacySources: [],
       legacyTargetDir: null,
@@ -468,9 +547,13 @@ export const useDeviceSyncStore = create<DeviceSyncState>()(
       targetRevision: 0,
       deviceFilePaths: [],
       scanning: false,
+      deviceHasLegacyTemplate: false,
+      optionsExpanded: false,
 
       setTargetDir: (dir) => set(state => ({
         targetDir: dir,
+        targetIsLocal: dir === state.targetDir ? state.targetIsLocal : false,
+        deviceHasLegacyTemplate: dir === state.targetDir ? state.deviceHasLegacyTemplate : false,
         pendingPlan: false,
         pendingPlanDeviceId: null,
         pendingPlanChecked: false,
@@ -478,27 +561,36 @@ export const useDeviceSyncStore = create<DeviceSyncState>()(
       })),
       setLayoutMode: (layoutMode) => set({ layoutMode }),
       setPlaylistPathMode: (playlistPathMode) => set({ playlistPathMode }),
+      setTranscode: (transcode) => set({ transcode: sanitizeDeviceSyncTranscode(transcode) }),
+      setTargetIsLocal: (targetIsLocal) => set({ targetIsLocal }),
       // The synced* pair describes how the device is laid out and always follows
       // the manifest. The plain pair is the user's desired layout and is only
       // adopted when the manifest states one; otherwise the choice survives the
       // attach and the resulting mismatch marks the configuration dirty.
-      applyManifestConfiguration: (layoutMode, playlistPathMode, manifestDeclaresConfiguration) => set(
-        manifestDeclaresConfiguration
-          ? {
-              layoutMode,
-              playlistPathMode,
-              syncedLayoutMode: layoutMode,
-              syncedPlaylistPathMode: playlistPathMode,
-            }
-          : {
-              syncedLayoutMode: layoutMode,
-              syncedPlaylistPathMode: playlistPathMode,
-            },
+      // A recorded transcode profile is adopted the same way: a device synced
+      // as MP3 stays MP3 unless the user picks another format.
+      applyManifestConfiguration: (layoutMode, playlistPathMode, manifestDeclaresConfiguration, transcode = null) => set(
+        {
+          ...(manifestDeclaresConfiguration
+            ? {
+                layoutMode,
+                playlistPathMode,
+                syncedLayoutMode: layoutMode,
+                syncedPlaylistPathMode: playlistPathMode,
+              }
+            : {
+                syncedLayoutMode: layoutMode,
+                syncedPlaylistPathMode: playlistPathMode,
+              }),
+          syncedTranscode: transcode,
+          ...(transcode ? { transcode } : {}),
+        },
       ),
-      markConfigurationSynced: (syncedLayoutMode, syncedPlaylistPathMode) => set({
+      markConfigurationSynced: (syncedLayoutMode, syncedPlaylistPathMode, syncedTranscode) => set(state => ({
         syncedLayoutMode,
         syncedPlaylistPathMode,
-      }),
+        syncedTranscode: syncedTranscode ?? state.syncedTranscode,
+      })),
 
       addSource: (source) =>
         set((s) => {
@@ -600,11 +692,13 @@ export const useDeviceSyncStore = create<DeviceSyncState>()(
 
       setDeviceFilePaths: (paths) => set({ deviceFilePaths: paths }),
       setScanning: (v) => set({ scanning: v }),
+      setDeviceHasLegacyTemplate: (v) => set({ deviceHasLegacyTemplate: v }),
+      setOptionsExpanded: (v) => set({ optionsExpanded: v }),
     }),
     {
       name: 'psysonic_device_sync',
       storage: createNavidromeCanonicalMigrationAwareJSONStorage(),
-      version: 4,
+      version: 5,
       migrate: (persisted) => migrateDeviceSyncPersistedState(persisted) as DeviceSyncState,
       partialize: (s) => ({
         targetDir: s.targetDir,
@@ -612,11 +706,14 @@ export const useDeviceSyncStore = create<DeviceSyncState>()(
         playlistPathMode: s.playlistPathMode,
         syncedLayoutMode: s.syncedLayoutMode,
         syncedPlaylistPathMode: s.syncedPlaylistPathMode,
+        transcode: s.transcode,
+        syncedTranscode: s.syncedTranscode,
         sources: s.sources,
         legacySources: s.legacySources,
         legacyTargetDir: s.legacyTargetDir,
         pendingDeletion: s.pendingDeletion,
         targetDeviceId: s.targetDeviceId,
+        optionsExpanded: s.optionsExpanded,
       }),
     }
   )

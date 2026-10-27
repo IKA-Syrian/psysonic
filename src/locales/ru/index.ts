@@ -13,6 +13,8 @@ import { favorites } from './favorites';
 import { randomLanding } from './randomLanding';
 import { randomAlbums } from './randomAlbums';
 import { genres } from './genres';
+import { moods } from './moods';
+import { labels } from './labels';
 import { randomMix } from './randomMix';
 import { luckyMix } from './luckyMix';
 import { albums } from './albums';
@@ -47,6 +49,8 @@ import { tray } from './tray';
 import { licenses } from './licenses';
 import { migration } from './migration';
 import { discordBanner } from './discordBanner';
+import { privateMode } from './privateMode';
+import { resume } from './resume';
 import { visualizer } from './visualizer';
 
 export const ruTranslation = {
@@ -65,6 +69,8 @@ export const ruTranslation = {
   randomLanding,
   randomAlbums,
   genres,
+  moods,
+  labels,
   randomMix,
   luckyMix,
   albums,
@@ -99,5 +105,7 @@ export const ruTranslation = {
   licenses,
   migration,
   discordBanner,
+  privateMode,
+  resume,
   visualizer,
 };

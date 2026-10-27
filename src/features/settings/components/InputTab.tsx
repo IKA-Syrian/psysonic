@@ -1,23 +1,88 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Keyboard, RotateCcw, X } from 'lucide-react';
+import { Hand, Keyboard, MousePointerClick, RotateCcw, X } from 'lucide-react';
 import { IN_APP_SHORTCUT_ACTIONS, GLOBAL_SHORTCUT_ACTIONS } from '@/config/shortcutActions';
 import { IS_MACOS } from '@/lib/util/platform';
 import { useGlobalShortcutsStore, type GlobalAction, buildGlobalShortcut, formatGlobalShortcut } from '@/store/globalShortcutsStore';
 import { useKeybindingsStore, type KeyAction, buildInAppBinding, formatBinding } from '@/store/keybindingsStore';
+import { useThemeStore, type TrackRowPlayClick } from '@/store/themeStore';
 import SettingsSubSection from '@/features/settings/components/SettingsSubSection';
 import { SettingsGroup } from '@/features/settings/components/SettingsGroup';
-import { SettingsSubCard } from '@/features/settings/components/SettingsSubCard';
+import { SettingsField, SettingsSubCard } from '@/features/settings/components/SettingsSubCard';
+import { SettingsSegmented, type SegmentedOption } from '@/features/settings/components/SettingsSegmented';
+import { SettingsToggle } from '@/features/settings/components/SettingsToggle';
 
 export function InputTab() {
   const { t } = useTranslation();
   const kb = useKeybindingsStore();
   const gs = useGlobalShortcutsStore();
+  const trackRowPlayClick = useThemeStore(s => s.trackRowPlayClick);
+  const setTrackRowPlayClick = useThemeStore(s => s.setTrackRowPlayClick);
+  const touchpadSwipeNavigation = useThemeStore(s => s.touchpadSwipeNavigation);
+  const setTouchpadSwipeNavigation = useThemeStore(s => s.setTouchpadSwipeNavigation);
   const [listeningFor, setListeningFor] = useState<KeyAction | null>(null);
   const [listeningForGlobal, setListeningForGlobal] = useState<GlobalAction | null>(null);
+  // One capture listener at a time across both lists. Without this, a field
+  // that was clicked and then left waiting kept its listener, and the next key
+  // was bound to it as well as to the field clicked after it.
+  const captureRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+  const stopCapture = () => {
+    if (captureRef.current) window.removeEventListener('keydown', captureRef.current, true);
+    captureRef.current = null;
+    setListeningFor(null);
+    setListeningForGlobal(null);
+  };
+  const startCapture = (handler: (e: KeyboardEvent) => void) => {
+    captureRef.current = handler;
+    window.addEventListener('keydown', handler, true);
+  };
+  useEffect(() => () => {
+    if (captureRef.current) window.removeEventListener('keydown', captureRef.current, true);
+  }, []);
+  const trackRowPlayClickOptions: SegmentedOption<TrackRowPlayClick>[] = [
+    { id: 'single', label: t('settings.trackRowPlayClickSingle') },
+    { id: 'double', label: t('settings.trackRowPlayClickDouble') },
+  ];
 
   return (
     <>
+      <SettingsSubSection
+        title={t('settings.inputMouseTitle')}
+        icon={<MousePointerClick size={16} />}
+      >
+        <div className="settings-card">
+          <SettingsGroup>
+            <SettingsField
+              label={t('settings.trackRowPlayClick')}
+              desc={t('settings.trackRowPlayClickDesc')}
+            >
+              <SettingsSegmented
+                options={trackRowPlayClickOptions}
+                value={trackRowPlayClick}
+                onChange={setTrackRowPlayClick}
+                ariaLabel={t('settings.trackRowPlayClick')}
+              />
+            </SettingsField>
+          </SettingsGroup>
+        </div>
+      </SettingsSubSection>
+
+      <SettingsSubSection
+        title={t('settings.inputTouchpadTitle')}
+        icon={<Hand size={16} />}
+      >
+        <div className="settings-card">
+          <SettingsGroup>
+            <SettingsToggle
+              label={t('settings.touchpadSwipeNavigation')}
+              desc={t('settings.touchpadSwipeNavigationDesc')}
+              checked={touchpadSwipeNavigation}
+              onChange={setTouchpadSwipeNavigation}
+            />
+          </SettingsGroup>
+        </div>
+      </SettingsSubSection>
+
       <SettingsSubSection
         title={t('settings.inputKeybindingsTitle')}
         icon={<Keyboard size={16} />}
@@ -26,7 +91,7 @@ export function InputTab() {
             type="button"
             className="btn btn-ghost"
             style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 6px' }}
-            onClick={() => { kb.resetToDefaults(); setListeningFor(null); }}
+            onClick={() => { kb.resetToDefaults(); stopCapture(); }}
             data-tooltip={t('settings.shortcutsReset')}
             aria-label={t('settings.shortcutsReset')}
           >
@@ -53,14 +118,14 @@ export function InputTab() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <button
                         onClick={() => {
-                          if (isListening) { setListeningFor(null); return; }
+                          stopCapture();
+                          if (isListening) return;
                           setListeningFor(action);
-                          const handler = (e: KeyboardEvent) => {
+                          startCapture((e: KeyboardEvent) => {
                             e.preventDefault();
                             e.stopPropagation();
                             if (e.code === 'Escape') {
-                              setListeningFor(null);
-                              window.removeEventListener('keydown', handler, true);
+                              stopCapture();
                               return;
                             }
                             const chord = buildInAppBinding(e);
@@ -69,10 +134,8 @@ export function InputTab() {
                               .find(([, c]) => c === chord)?.[0];
                             if (existing && existing !== action) kb.setBinding(existing, null);
                             kb.setBinding(action, chord);
-                            setListeningFor(null);
-                            window.removeEventListener('keydown', handler, true);
-                          };
-                          window.addEventListener('keydown', handler, true);
+                            stopCapture();
+                          });
                         }}
                         className="keybind-badge"
                         style={{
@@ -114,7 +177,7 @@ export function InputTab() {
             type="button"
             className="btn btn-ghost"
             style={{ fontSize: 12, color: 'var(--text-muted)', padding: '2px 6px' }}
-            onClick={() => { gs.resetAll(); setListeningForGlobal(null); }}
+            onClick={() => { gs.resetAll(); stopCapture(); }}
             data-tooltip={t('settings.shortcutsReset')}
             aria-label={t('settings.shortcutsReset')}
           >
@@ -141,24 +204,22 @@ export function InputTab() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <button
                         onClick={() => {
-                          if (isListening) { setListeningForGlobal(null); return; }
+                          stopCapture();
+                          if (isListening) return;
                           setListeningForGlobal(action);
-                          const handler = (e: KeyboardEvent) => {
+                          startCapture((e: KeyboardEvent) => {
                             e.preventDefault();
                             e.stopPropagation();
                             if (e.code === 'Escape') {
-                              setListeningForGlobal(null);
-                              window.removeEventListener('keydown', handler, true);
+                              stopCapture();
                               return;
                             }
                             const shortcut = buildGlobalShortcut(e);
                             if (shortcut) {
                               gs.setShortcut(action, shortcut);
-                              setListeningForGlobal(null);
-                              window.removeEventListener('keydown', handler, true);
+                              stopCapture();
                             }
-                          };
-                          window.addEventListener('keydown', handler, true);
+                          });
                         }}
                         className="keybind-badge"
                         style={{

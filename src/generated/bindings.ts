@@ -9,6 +9,8 @@ export const commands = {
 	libraryGetCatalogYearBounds: (serverId: string) => typedError<CatalogYearBoundsDto, string>(__TAURI_INVOKE("library_get_catalog_year_bounds", { serverId })),
 	/**  Distinct album counts per track genre — same grouping as genre album browse. */
 	libraryGetGenreAlbumCounts: (serverId: string, libraryScope: string | null, libraryScopes: string[] | null) => typedError<GenreAlbumCountDto[], string>(__TAURI_INVOKE("library_get_genre_album_counts", { serverId, libraryScope, libraryScopes })),
+	libraryGetMoodAlbumCounts: (serverId: string, libraryScope: string | null, libraryScopes: string[] | null) => typedError<MoodAlbumCountDto[], string>(__TAURI_INVOKE("library_get_mood_album_counts", { serverId, libraryScope, libraryScopes })),
+	libraryGetLabelAlbumCounts: (serverId: string, libraryScope: string | null, libraryScopes: string[] | null) => typedError<LabelAlbumCountDto[], string>(__TAURI_INVOKE("library_get_label_album_counts", { serverId, libraryScope, libraryScopes })),
 	/**
 	 *  Align `album.starred_at` with server favorites: UPDATE existing rows only
 	 *  (no INSERT / stub rows). Clears local stars absent from `starred_albums`.
@@ -70,6 +72,10 @@ export const commands = {
 	libraryGetOfflinePath: (serverId: string, trackId: string) => typedError<OfflinePathDto, string>(__TAURI_INVOKE("library_get_offline_path", { serverId, trackId })),
 	libraryGenreTagsInspect: () => typedError<GenreTagsInspectDto, string>(__TAURI_INVOKE("library_genre_tags_inspect")),
 	libraryGenreTagsRun: () => typedError<null, string>(__TAURI_INVOKE("library_genre_tags_run")),
+	libraryFileMoodTagsInspect: () => typedError<MoodTagsInspectDto, string>(__TAURI_INVOKE("library_file_mood_tags_inspect")),
+	libraryFileMoodTagsRun: () => typedError<null, string>(__TAURI_INVOKE("library_file_mood_tags_run")),
+	libraryRecordLabelTagsInspect: () => typedError<LabelTagsInspectDto, string>(__TAURI_INVOKE("library_record_label_tags_inspect")),
+	libraryRecordLabelTagsRun: () => typedError<null, string>(__TAURI_INVOKE("library_record_label_tags_run")),
 	/**  Ensure precomputed cluster identity keys are current without blocking Tauri's main thread. */
 	libraryClusterRebuild: (serverId: string | null) => typedError<number, string>(__TAURI_INVOKE("library_cluster_rebuild", { serverId })),
 	libraryResolveEntitySources: (request: LibraryResolveEntitySourcesRequest) => typedError<LibraryEntitySourceDto[], string>(__TAURI_INVOKE("library_resolve_entity_sources", { request })),
@@ -131,7 +137,7 @@ export const commands = {
 	 *  ring buffer is created, its consumer is sent to `AudioStreamReader` (which
 	 *  swaps it in on the next `read()`), and a new download task is spawned.
 	 */
-	audioResume: (fadeSecs: number | null) => typedError<null, string>(__TAURI_INVOKE("audio_resume", { fadeSecs })),
+	audioResume: (fadeSecs: number | null, notifyPlaying: boolean | null) => typedError<null, string>(__TAURI_INVOKE("audio_resume", { fadeSecs, notifyPlaying })),
 	audioStop: () => __TAURI_INVOKE<void>("audio_stop"),
 	audioSeek: (seconds: number | null) => typedError<null, string>(__TAURI_INVOKE("audio_seek", { seconds })),
 	audioSetVolume: (volume: number | null) => __TAURI_INVOKE<void>("audio_set_volume", { volume }),
@@ -404,6 +410,13 @@ export const commands = {
 	 */
 	renameDeviceFiles: (targetDir: string, pairs: ([string, string])[]) => typedError<RenameResult[], string>(__TAURI_INVOKE("rename_device_files", { targetDir, pairs })),
 	/**
+	 *  Reports whether a chosen folder can be synced to as-is, or needs the user to
+	 *  confirm it as a local folder first.
+	 */
+	inspectDeviceSyncTarget: (destDir: string) => __TAURI_INVOKE<DeviceSyncTargetInfo>("inspect_device_sync_target", { destDir }),
+	/**  Confirms a folder on the system disk as a sync target (see `LOCAL_TARGET_MARKER`). */
+	markLocalSyncTarget: (destDir: string) => typedError<null, string>(__TAURI_INVOKE("mark_local_sync_target", { destDir })),
+	/**
 	 *  Downloads a server-generated ZIP (album/playlist) directly to disk via streaming.
 	 *  Emits `download:zip:progress` events every 500 ms so the frontend can show
 	 *  live MB-counter without holding any binary data in the WebView process.
@@ -471,6 +484,15 @@ export const commands = {
 	 *  before removing it, so no ensure is mid-write. Returns the number removed.
 	 */
 	coverCachePurgeExternalAlbumArt: (sources: string[] | null) => typedError<number, string>(__TAURI_INVOKE("cover_cache_purge_external_album_art", { sources })),
+	/**
+	 *  Drop the server art of ONE cover entity so the next ensure downloads it
+	 *  again (cover-art-pipeline contract §10) — run after the user uploads a new
+	 *  image for it. Takes the dir's flight lock first, so no ensure is mid-write.
+	 *  External-provider artifacts survive (see `purge_entity_server_art`).
+	 *  Returns the number of files removed. No event: the frontend that asked for
+	 *  the purge drops its own in-memory entries for the entity.
+	 */
+	coverCacheInvalidateEntity: (serverIndexKey: string, cacheKind: string, cacheEntityId: string) => typedError<number, string>(__TAURI_INVOKE("cover_cache_invalidate_entity", { serverIndexKey, cacheKind, cacheEntityId })),
 	/**
 	 *  Rename a server's cover-cache bucket on disk after the user edits the
 	 *  primary URL (and the derived index key changes). Used by the URL-change
@@ -661,6 +683,12 @@ export const commands = {
 	mprisSetMetadata: (title: string | null, artist: string | null, album: string | null, coverUrl: string | null, durationSecs: number | null) => typedError<null, string>(__TAURI_INVOKE("mpris_set_metadata", { title, artist, album, coverUrl, durationSecs })),
 	mprisSetPlayback: (playing: boolean, positionSecs: number | null) => typedError<null, string>(__TAURI_INVOKE("mpris_set_playback", { playing, positionSecs })),
 	mprisSetVolume: (volume: number | null) => typedError<null, string>(__TAURI_INVOKE("mpris_set_volume", { volume })),
+	/**
+	 *  Desktop notification for a track change. It is skipped while a Psysonic
+	 *  window has focus: the user is looking at the player then. Returns whether a
+	 *  notification was shown.
+	 */
+	showTrackNotification: (title: string, body: string, coverPath: string | null) => typedError<boolean, string>(__TAURI_INVOKE("show_track_notification", { title, body, coverPath })),
 	/**  Returns true if `path` is an accessible directory (used for pre-flight checks in the frontend). */
 	checkDirAccessible: (path: string) => __TAURI_INVOKE<boolean>("check_dir_accessible", { path }),
 	/**
@@ -1476,12 +1504,52 @@ export type DeviceSyncManifestFile = {
 	relativePath: string,
 	sourceKeys: string[],
 	sizeBytes: number,
+	/**
+	 *  How the file was produced. Absent on manifests written before
+	 *  transcoding existed, which only ever held originals.
+	 */
+	transcode?: DeviceSyncTranscode | null,
+	/**  Server-side source file the copy was made from. Absent on older manifests. */
+	source?: DeviceSyncSourceFingerprint | null,
 };
 
 export type DeviceSyncManifestPlaylist = {
 	sourceKey: string,
 	relativePath: string,
 };
+
+/**
+ *  What the server reported about a track's source file when it was synced.
+ *  A mismatch on the next run means the file was replaced on the server.
+ */
+export type DeviceSyncSourceFingerprint = {
+	size?: number | null,
+	suffix?: string | null,
+	bitRate?: number | null,
+};
+
+export type DeviceSyncTargetInfo = {
+	exists: boolean,
+	onMountedVolume: boolean,
+	localTarget: boolean,
+	/**
+	 *  The folder may be confirmed as a local target: it is empty or already
+	 *  holds a Psysonic sync (see `local_target_refusal`).
+	 */
+	localTargetAllowed: boolean,
+};
+
+export type DeviceSyncTranscode = {
+	format?: DeviceSyncTranscodeFormat,
+	/**  Bitrate cap in kbps; `0` leaves the choice to the server. */
+	maxBitRateKbps?: number,
+};
+
+/**
+ *  Output format of a synced file. `Original` copies the server file as-is;
+ *  the others ask the server to transcode through `stream.view`.
+ */
+export type DeviceSyncTranscodeFormat = "original" | "mp3" | "aac" | "opus";
 
 export type EndpointKind = "local" | "public";
 
@@ -1582,6 +1650,19 @@ export type ImportedThemeFiles = {
 	assets: ImportedThemeAsset[],
 };
 
+/**  Per-record-label album/track totals from the local label index. */
+export type LabelAlbumCountDto = {
+	value: string,
+	albumCount: number,
+	songCount: number,
+};
+
+export type LabelTagsInspectDto = {
+	needed: boolean,
+	totalTracks: number,
+	doneTracks: number,
+};
+
 export type LegacyOfflineMigrationResult = {
 	trackId: string,
 	serverIndexKey: string,
@@ -1602,6 +1683,9 @@ export type LibraryAlbumOverlayCandidateDto = {
 	name: string,
 	artist: string | null,
 	version?: string | null,
+	year?: number | null,
+	/**  Library the album was listed under, when the fetch was scoped to one. */
+	libraryId?: string | null,
 };
 
 /**
@@ -1862,6 +1946,19 @@ export type MigrationServerSnapshotDto = {
 	serverId: string,
 	phase: MigrationPhase,
 	error: string | null,
+};
+
+/**  Per-file-mood album/track totals from the local mood index. */
+export type MoodAlbumCountDto = {
+	value: string,
+	albumCount: number,
+	songCount: number,
+};
+
+export type MoodTagsInspectDto = {
+	needed: boolean,
+	totalTracks: number,
+	doneTracks: number,
 };
 
 export type NavidromeFilesystemMigrationDto = {
@@ -2244,12 +2341,17 @@ export type TrackSyncInfo = {
 	artist: string,
 	/**
 	 *  Album artist — used for the top-level folder so compilation albums stay together.
-	 *  Falls back to `artist` in the frontend when the server has no albumArtist tag.
+	 *  Taken from `albumArtist`, then the OpenSubsonic `displayAlbumArtist`, then `artist`.
 	 */
 	albumArtist: string,
 	album: string,
 	title: string,
 	trackNumber: number | null,
+	/**
+	 *  From disc 2 on, the disc prefixes the album-tree file name (`2-01 - Title`)
+	 *  so equal track numbers and titles on different discs do not collide.
+	 */
+	discNumber?: number | null,
 	/**  Duration in seconds — needed for Extended M3U (#EXTINF) playlist entries. */
 	duration?: number | null,
 	/**
@@ -2265,6 +2367,11 @@ export type TrackSyncInfo = {
 	 *  source it came from (see `build_track_path`).
 	 */
 	flatLayout?: boolean,
+	/**
+	 *  Replace an existing copy at the same path (new transcode profile or a
+	 *  source file that changed on the server) instead of skipping it.
+	 */
+	overwrite?: boolean,
 };
 
 export type WaveformCachePayload = {

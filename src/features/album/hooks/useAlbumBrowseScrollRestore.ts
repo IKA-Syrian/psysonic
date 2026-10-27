@@ -1,6 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigationType, type NavigationType } from 'react-router';
 import {
+  clearLabelDetailReturnStash,
+  clearMoodDetailReturnStash,
+  peekLabelDetailScrollRestore,
+  peekMoodDetailScrollRestore,
   clearGenreDetailReturnStash,
   peekAlbumBrowseScrollRestore,
   peekGenreDetailScrollRestore,
@@ -20,6 +24,10 @@ export type UseAlbumBrowseScrollRestoreArgs = {
   surface?: AlbumBrowseSurface;
   /** Genre detail page — uses genre-scoped stash instead of `surface`. */
   genreName?: string;
+  /** Mood detail page — uses mood-scoped stash instead of `surface`. */
+  moodName?: string;
+  /** Label detail page — uses label-scoped stash instead of `surface`. */
+  labelName?: string;
   scrollBodyEl: HTMLElement | null;
   displayAlbumsLength: number;
   loading: boolean;
@@ -37,12 +45,46 @@ function readPendingScrollRestore(
   serverId: string,
   surface: AlbumBrowseSurface | undefined,
   genreName: string | undefined,
+  moodName: string | undefined,
+  labelName: string | undefined,
   navigationType: NavigationType,
   locationState: unknown,
 ): PendingScroll | null {
-  if (!shouldRestoreAlbumBrowseSession(navigationType, locationState) || !serverId) return null;
-  if (genreName) return peekGenreDetailScrollRestore(serverId, genreName);
-  if (surface) return peekAlbumBrowseScrollRestore(serverId, surface);
+  if (
+    !shouldRestoreAlbumBrowseSession(
+      navigationType,
+      locationState,
+    ) ||
+    !serverId
+  ) {
+    return null;
+  }
+
+  if (genreName) {
+    return peekGenreDetailScrollRestore(
+      serverId,
+      genreName,
+    );
+  }
+
+  if (moodName) {
+    return peekMoodDetailScrollRestore(
+      serverId,
+      moodName,
+    );
+  }
+
+  if (labelName) {
+    return peekLabelDetailScrollRestore(serverId, labelName);
+  }
+
+  if (surface) {
+    return peekAlbumBrowseScrollRestore(
+      serverId,
+      surface,
+    );
+  }
+
   return null;
 }
 
@@ -50,13 +92,34 @@ function clearScrollRestoreStash(
   serverId: string,
   surface: AlbumBrowseSurface | undefined,
   genreName: string | undefined,
+  moodName: string | undefined,
+  labelName: string | undefined,
 ): void {
   if (genreName) {
-    clearGenreDetailReturnStash(serverId, genreName);
+    clearGenreDetailReturnStash(
+      serverId,
+      genreName,
+    );
     return;
   }
+
+  if (moodName) {
+    clearMoodDetailReturnStash(
+      serverId,
+      moodName,
+    );
+    return;
+  }
+
+  if (labelName) {
+    clearLabelDetailReturnStash(serverId, labelName);
+    return;
+  }
+
   if (surface) {
-    useAlbumBrowseSessionStore.getState().clearReturnStash(serverId, surface);
+    useAlbumBrowseSessionStore
+      .getState()
+      .clearReturnStash(serverId, surface);
   }
 }
 
@@ -68,6 +131,8 @@ export function useAlbumBrowseScrollRestore({
   serverId,
   surface,
   genreName,
+  moodName,
+  labelName,
   scrollBodyEl,
   displayAlbumsLength,
   loading,
@@ -91,13 +156,15 @@ export function useAlbumBrowseScrollRestore({
       serverId,
       surface,
       genreName,
+      moodName,
+      labelName,
       navigationType,
       location.state,
     );
   }
 
   const [isScrollRestorePending, setIsScrollRestorePending] = useState(
-    () => readPendingScrollRestore(serverId, surface, genreName, navigationType, location.state) !== null,
+    () => readPendingScrollRestore(serverId, surface, genreName, moodName, labelName, navigationType, location.state) !== null,
   );
 
   // React Compiler immutability rule: intentional imperative mutation of an external/DOM target inside an effect.
@@ -123,7 +190,7 @@ export function useAlbumBrowseScrollRestore({
     // React Compiler set-state-in-effect rule: state set from a DOM/layout measurement.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsScrollRestorePending(false);
-    clearScrollRestoreStash(serverId, surface, genreName);
+    clearScrollRestoreStash(serverId, surface, genreName, moodName, labelName);
   }, [
     scrollBodyEl,
     displayAlbumsLength,
@@ -134,6 +201,8 @@ export function useAlbumBrowseScrollRestore({
     serverId,
     surface,
     genreName,
+    moodName,
+    labelName,
   ]);
 
   return { isScrollRestorePending };

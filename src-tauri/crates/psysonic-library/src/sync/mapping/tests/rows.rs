@@ -29,6 +29,37 @@ fn subsonic_song_maps_hot_columns_and_keeps_raw_json() {
 }
 
 #[test]
+fn subsonic_song_marks_observed_moods_authoritative() {
+    let raw = json!({
+        "id": "tr_1",
+        "title": "Song",
+        "moods": ["Atmospheric", "Dreamy"]
+    });
+    let song: Song = serde_json::from_value(raw.clone()).unwrap();
+    let row = subsonic_song_to_track_row("s1", &song, &raw, 1_000, None);
+    let stored: serde_json::Value = serde_json::from_str(&row.raw_json).unwrap();
+
+    assert_eq!(stored["moods"], json!(["Atmospheric", "Dreamy"]));
+    assert_eq!(stored["_psysonicMoodsAuthoritative"], json!(true));
+}
+
+#[test]
+fn subsonic_song_keeps_empty_moods_on_the_fast_path() {
+    let raw = json!({
+        "id": "tr_1",
+        "title": "Song",
+        "moods": []
+    });
+    let song: Song = serde_json::from_value(raw.clone()).unwrap();
+    let row = subsonic_song_to_track_row("s1", &song, &raw, 1_000, None);
+    let stored: serde_json::Value = serde_json::from_str(&row.raw_json).unwrap();
+
+    assert_eq!(stored["moods"], json!([]));
+    assert!(stored.get("_psysonicMoodsAuthoritative").is_none());
+    assert_eq!(row.raw_json, raw.to_string());
+}
+
+#[test]
 fn subsonic_song_maps_rfc1123_created_into_server_created_at() {
     // Some Subsonic servers report `created` in RFC 1123 rather than ISO 8601.
     // Dropping it leaves `server_created_at` NULL, which empties "recently
@@ -74,6 +105,96 @@ fn navidrome_song_maps_native_field_shape() {
     assert_eq!(row.library_id.as_deref(), Some("1"));
     assert!(row.server_created_at.unwrap_or(0) > 0);
     assert!(row.server_updated_at.unwrap_or(0) > 0);
+}
+
+#[test]
+fn navidrome_song_normalizes_native_moods_to_top_level_moods() {
+    let raw = json!({
+        "id": "tr_1",
+        "title": "Song",
+        "tags": {
+            "mood": ["Atmospheric", "Dreamy"]
+        }
+    });
+
+    let row = navidrome_song_to_track_row("s1", &raw, 1, None).unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&row.raw_json).unwrap();
+
+    assert_eq!(stored["moods"], json!(["Atmospheric", "Dreamy"]));
+    assert_eq!(stored["_psysonicMoodsAuthoritative"], json!(true));
+}
+
+#[test]
+fn navidrome_song_normalizes_explicit_empty_native_mood() {
+    let raw = json!({
+        "id": "tr_1",
+        "title": "Song",
+        "tags": {
+            "mood": []
+        }
+    });
+
+    let row = navidrome_song_to_track_row("s1", &raw, 1, None).unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&row.raw_json).unwrap();
+
+    assert_eq!(stored["moods"], json!([]));
+    assert_eq!(stored["_psysonicMoodsAuthoritative"], json!(true));
+}
+
+#[test]
+fn navidrome_song_normalizes_missing_native_mood_to_explicit_clear() {
+    let raw = json!({
+        "id": "tr_1",
+        "title": "Song",
+        "tags": {
+            "genre": ["Ambient"]
+        }
+    });
+
+    let row = navidrome_song_to_track_row("s1", &raw, 1, None).unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&row.raw_json).unwrap();
+
+    assert_eq!(
+        stored["moods"],
+        json!([]),
+        "a fresh native snapshot with no mood must encode an explicit canonical clear"
+    );
+    assert_eq!(stored["_psysonicMoodsAuthoritative"], json!(true));
+}
+
+#[test]
+fn navidrome_song_appends_subtitle_and_album_version_like_the_subsonic_api() {
+    let raw = json!({
+        "id": "tr_1", "title": "Song", "album": "Album",
+        "tags": { "subtitle": ["Instrumental"], "albumversion": ["Deluxe Edition"] }
+    });
+    let row = navidrome_song_to_track_row("s1", &raw, 1, None).unwrap();
+    assert_eq!(row.title, "Song (Instrumental)");
+    assert_eq!(row.album, "Album (Deluxe Edition)");
+}
+
+#[test]
+fn navidrome_song_keeps_a_bracketed_suffix_and_skips_blank_tags() {
+    let raw = json!({
+        "id": "tr_1", "title": "Song", "album": "Album",
+        "tags": { "subtitle": ["  ", "[Live]"], "albumversion": [""] }
+    });
+    let row = navidrome_song_to_track_row("s1", &raw, 1, None).unwrap();
+    assert_eq!(row.title, "Song [Live]");
+    assert_eq!(row.album, "Album");
+}
+
+#[test]
+fn navidrome_suffix_is_not_appended_twice() {
+    assert_eq!(
+        append_navidrome_suffix("Song (Instrumental)", Some("Instrumental")),
+        "Song (Instrumental)"
+    );
+    assert_eq!(
+        append_navidrome_suffix("Song [Live]", Some("[Live]")),
+        "Song [Live]"
+    );
+    assert_eq!(append_navidrome_suffix("Song", None), "Song");
 }
 
 #[test]

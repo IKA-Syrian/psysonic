@@ -479,6 +479,24 @@ const CONTRIBUTOR_ENTRIES = [
       'Album and playlist pages — icon-only action buttons you can reorder and hide (PR #1644)',
       'Playlists — hint and reset when drag reordering is off in a sorted or filtered view (PR #1647)',
       'Playlists — drag a selection of tracks as one block (PR #1649)',
+      'Library — track subtitles and album versions from Navidrome, with the version shown under the album title (PR #1662)',
+      'Tracklists — play songs on a single or double click, with a row highlight you move by keyboard (PR #1668)',
+      'Home — AudioMuse as a source for the "Because you listened" rail (PR #1678)',
+      'Smart shuffle — spread artists and albums when shuffling (PR #1698)',
+      'Now-playing marker on album, artist and playlist cards and sidebar playlists (PR #1700)',
+      'Private mode — listen without scrobbles, play counts, now-playing or listening history (PR #1701)',
+      'Sleep timer — stop at the end of the track or album (PR #1702)',
+      'Player — Alt+click or a shortcut skips to the next or previous album (PR #1703)',
+      'Playlists — recently used targets on top of the add-to-playlist menus (PR #1705)',
+      'Player — notice when playback starts with the volume at 0 (PR #1706)',
+      'Fullscreen player — opens on its own after a stretch without input (PR #1710)',
+      'Resume — continue albums and playlists where you left off, with a Continue listening row on Home (PR #1719)',
+      'Home — arrange the rows by drag and drop (PR #1720)',
+      'Lyrics — show server-provided translations under the lyrics (PR #1721)',
+      'Notifications — desktop notification with cover when the song changes (PR #1723)',
+      'Playlists — tags with filter chips on the Playlists page (PR #1730)',
+      'Tracks — explicit badges and optional cover blur (PR #1731)',
+      'Settings — full-text search across every option, typo-tolerant (PR #1747)',
     ],
   },
   {
@@ -555,6 +573,7 @@ const CONTRIBUTOR_ENTRIES = [
     contributions: [
       'Clickable artist credits in the fullscreen, mini and mobile players (PR #1371)',
       'Configurable album cover source chain with a Last.fm provider (PR #1502)',
+      'Keyboard shortcut that opens Settings (PR #1734)',
     ],
   },
   {
@@ -606,6 +625,44 @@ const CONTRIBUTOR_ENTRIES = [
     since: '1.55.0',
     contributions: [
       'Seek buffering indicator polish for player and queue cover art (PR #1634)',
+      'Track-list mouse-wheel scrolling after horizontal swipes on WebKit (PR #1635)',
+    ],
+  },
+  {
+    github: 'circle3451',
+    since: '1.56.0',
+    contributions: [
+      'Device Sync — transcode to MP3, AAC or Opus on the server (PR #1643)',
+      'Album page — similar albums from AudioMuse (PR #1663)',
+      'Device Sync — absolute M3U path style (PR #1669)',
+      'Device Sync — move relocated copies, remove departed tracks (PR #1670)',
+      'Device Sync — sync to a local folder (PR #1671)',
+      'Albums — sort by year (PR #1672)',
+      'Labels tab — browse albums by record label (PR #1682)',
+      'Touchpad swipe navigation and pinch-to-zoom covers (PR #1695)',
+    ],
+  },
+  {
+    github: 'Puppies-On-Acid',
+    since: '1.56.0',
+    contributions: [
+      'Browse albums by file mood tags (PR #1675)',
+      'Browse individual tracks by mood (PR #1685)',
+      'Search and sort genre and mood catalogs (PR #1733)',
+    ],
+  },
+  {
+    github: 'netherguy4',
+    since: '1.56.0',
+    contributions: [
+      'AppImage launches against the system WebKitGTK when one is installed (PR #1348)',
+    ],
+  },
+  {
+    github: 'stefnto',
+    since: '1.56.0',
+    contributions: [
+      'Greek translation (PR #1737)',
     ],
   },
 ] as const;

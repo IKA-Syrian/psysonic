@@ -20,6 +20,7 @@ import { OpenArtistRefInline } from '@/ui/OpenArtistRefInline';
 import { offlineActionPolicy, type OfflineActionPolicy } from '@/features/offline';
 import { deriveAlbumGenreTags } from '@/lib/library/genreTags';
 import { deriveAlbumComment } from '@/features/album/utils/albumComment';
+import { deriveAlbumVersion } from '@/features/album/utils/albumVersion';
 import AlbumNotes from '@/features/album/components/AlbumNotes';
 import AlbumHeaderActionBar from '@/features/album/components/AlbumHeaderActionBar';
 import { genreColor } from '@/lib/library/genreColor';
@@ -28,6 +29,11 @@ import EntitySourcePicker from '@/ui/EntitySourcePicker';
 import type { LibraryScopePair } from '@/lib/api/library';
 import type { MusicFolder, ServerProfile } from '@/store/authStoreTypes';
 import { ShareMethodMenuButton } from '@/features/share';
+import { ResumeButton } from '@/features/resume';
+import ExplicitBadge from '@/ui/ExplicitBadge';
+import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
+import { hasExplicitTrack } from '@/lib/media/explicitStatus';
+import { useShowStarRatings } from '@/store/starRatings';
 
 /** True when the album artist label means "no single artist" — `getArtistInfo`
  *  has nothing meaningful to return for these, so the Artist Bio entry is hidden.
@@ -222,6 +228,7 @@ export default function AlbumHeader({
 }: AlbumHeaderProps) {
   const policy = actionPolicy ?? offlineActionPolicy('albumDetail', false);
   const { t } = useTranslation();
+  const showStarRatings = useShowStarRatings();
   const navigate = useNavigate();
   const location = useLocation();
   const goBack = useAlbumDetailBack();
@@ -247,6 +254,10 @@ export default function AlbumHeader({
   // agrees on, or null. Memoized because the album track list is stable while
   // the header re-renders on playback state.
   const albumComment = useMemo(() => deriveAlbumComment(songs), [songs]);
+  const albumVersion = useMemo(() => deriveAlbumVersion(info, songs), [info, songs]);
+  const albumExplicit = useMemo(() => hasExplicitTrack(songs), [songs]);
+  // The faint cover backdrop would show a blurred explicit cover anyway.
+  const hideExplicitCover = useThemeStore(s => s.blurExplicitCovers) && albumExplicit;
   const [genreMenuPos, setGenreMenuPos] = useState<{ x: number; y: number } | null>(null);
   const genreMoreRef = useRef<HTMLButtonElement>(null);
   // §5 external album-chain context for the hero cover. Memoized on the
@@ -283,7 +294,7 @@ export default function AlbumHeader({
       )}
 
       <div className="album-detail-header">
-        {resolvedCoverUrl && enableCoverArtBackground && (
+        {resolvedCoverUrl && enableCoverArtBackground && !hideExplicitCover && (
           <>
             <div
               className="album-detail-bg"
@@ -314,6 +325,7 @@ export default function AlbumHeader({
                   ensureOpts={heroCoverEnsureOpts}
                   alt={`${info.name} Cover`}
                 />
+                <ExplicitCoverVeil explicit={albumExplicit} />
               </button>
             ) : (
               <div className="album-detail-cover album-cover-placeholder">♪</div>
@@ -322,7 +334,11 @@ export default function AlbumHeader({
               {isNewAlbum && (
                 <span className="badge album-detail-badge">{t('common.new', 'New')}</span>
               )}
-              <h1 className="album-detail-title">{info.name}</h1>
+              <h1 className="album-detail-title">
+                {info.name}
+                <ExplicitBadge status={albumExplicit ? 'explicit' : undefined} />
+              </h1>
+              {albumVersion && <p className="album-detail-version">{albumVersion}</p>}
               <p className="album-detail-artist">
                 <OpenArtistRefInline
                   refs={resolvedArtistRefs}
@@ -376,9 +392,7 @@ export default function AlbumHeader({
                     <button
                       className="album-detail-artist-link"
                       data-tooltip={t('albumDetail.moreLabelAlbums', { label: info.recordLabel })}
-                      onClick={() => navigate(
-                        `/label/${encodeURIComponent(info.recordLabel!)}${serverId ? `?server=${encodeURIComponent(serverId)}` : ''}`,
-                      )}
+                      onClick={() => navigate(`/label/${encodeURIComponent(info.recordLabel!)}`)}
                     >
                       {info.recordLabel}
                     </button>
@@ -399,15 +413,17 @@ export default function AlbumHeader({
                   }))}
                 />
               )}
-              <div className="album-detail-entity-rating">
-                <span className="album-detail-entity-rating-label">{t('entityRating.albumShort')}</span>
-                <StarRating
-                  value={entityRatingValue}
-                  onChange={onEntityRatingChange}
-                  disabled={!policy.canRate || entityRatingSupport === 'track_only'}
-                  labelKey="entityRating.albumAriaLabel"
-                />
-              </div>
+              {showStarRatings && (
+                <div className="album-detail-entity-rating">
+                  <span className="album-detail-entity-rating-label">{t('entityRating.albumShort')}</span>
+                  <StarRating
+                    value={entityRatingValue}
+                    onChange={onEntityRatingChange}
+                    disabled={!policy.canRate || entityRatingSupport === 'track_only'}
+                    labelKey="entityRating.albumAriaLabel"
+                  />
+                </div>
+              )}
               <AlbumNotes comment={albumComment} description={albumDescription} />
               {isMobile ? (
                 <div className="album-detail-actions-mobile">
@@ -421,6 +437,13 @@ export default function AlbumHeader({
                     >
                       <Play size={24} fill="currentColor" />
                     </button>
+                    <ResumeButton
+                      kind="album"
+                      id={info.id}
+                      serverId={serverId}
+                      className="album-icon-btn album-icon-btn--queue"
+                      iconOnly
+                    />
                     <button
                       className="album-icon-btn album-icon-btn--queue"
                       onClick={onEnqueueAll}

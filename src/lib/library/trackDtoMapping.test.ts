@@ -122,3 +122,107 @@ describe('trackToSong last played from a native payload', () => {
     expect(song.played).toBeUndefined();
   });
 });
+
+describe('trackToSong title and album from a native payload', () => {
+  it('keeps the suffixed columns over the bare native snapshot', () => {
+    const song = trackToSong(dto({
+      title: 'Song (Instrumental)',
+      album: 'Album (Deluxe)',
+      rawJson: { title: 'Song', album: 'Album', tags: { subtitle: ['Instrumental'], albumversion: ['Deluxe'] } },
+    }));
+
+    expect(song.title).toBe('Song (Instrumental)');
+    expect(song.album).toBe('Album (Deluxe)');
+  });
+});
+
+describe('trackToSong moods from a native payload', () => {
+  it("maps Navidrome's tags.mood to OpenSubsonic moods", () => {
+    const song = trackToSong(
+      dto({
+        rawJson: {
+          tags: {
+            mood: ['Atmospheric', 'Melancholic', 'Nocturnal'],
+          },
+        },
+      }),
+    );
+
+    expect(song.moods).toEqual([
+      'Atmospheric',
+      'Melancholic',
+      'Nocturnal',
+    ]);
+  });
+
+  it('keeps ambiguous legacy top-level moods hidden until authoritative reconciliation', () => {
+    const song = trackToSong(
+      dto({
+        rawJson: {
+          moods: ['heavy', 'aggressive', 'depressive'],
+          tags: {
+            genre: ['Sludge', 'Doom Metal'],
+            recordlabel: ['Black Star Foundation'],
+            tracktotal: ['7'],
+          },
+        },
+      }),
+    );
+
+    expect(song.moods).toEqual([]);
+  });
+
+  it('trusts marked top-level moods beside unrelated native tags', () => {
+    const song = trackToSong(
+      dto({
+        rawJson: {
+          _psysonicMoodsAuthoritative: true,
+          moods: ['male vocalist', 'melodic', 'progressive'],
+          tags: {
+            genre: ['Progressive Rock'],
+          },
+        },
+      }),
+    );
+
+    expect(song.moods).toEqual([
+      'male vocalist',
+      'melodic',
+      'progressive',
+    ]);
+  });
+
+  it('prefers Navidrome native mood tags over stale top-level moods', () => {
+    const song = trackToSong(
+      dto({
+        rawJson: {
+          moods: ['Old Mood'],
+          tags: {
+            mood: ['Atmospheric', 'Melancholic'],
+          },
+        },
+      }),
+    );
+
+    expect(song.moods).toEqual([
+      'Atmospheric',
+      'Melancholic',
+    ]);
+  });
+
+  it('honors an explicit normalized native mood clear', () => {
+    const song = trackToSong(
+      dto({
+        rawJson: {
+          _psysonicMoodsAuthoritative: true,
+          moods: [],
+          tags: {
+            genre: ['Ambient'],
+          },
+        },
+      }),
+    );
+
+    expect(song.moods).toEqual([]);
+  });
+});

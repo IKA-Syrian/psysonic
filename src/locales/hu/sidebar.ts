@@ -24,6 +24,8 @@ export const sidebar = {
   cancelDownload: 'Letöltés megszakítása',
   offlineLibrary: 'Offline könyvtár',
   genres: 'Műfajok',
+  moods: 'Hangulatok',
+  labels: 'Kiadók',
   tracks: 'Számok',
   playlists: 'Lejátszási listák',
   shared: 'ND-megosztások',

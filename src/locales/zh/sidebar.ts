@@ -21,6 +21,8 @@ export const sidebar = {
   cancelDownload: '取消下载',
   offlineLibrary: '离线音乐库',
   genres: '流派',
+  moods: '情绪',
+  labels: '厂牌',
   tracks: '曲目',
   playlists: '播放列表',
   shared: 'ND 分享',

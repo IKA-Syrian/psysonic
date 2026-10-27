@@ -26,6 +26,8 @@ export type SyncTrackMaybePlaylist = SubsonicSong & {
   _playlistId?: string;
   _playlistIndex?: number;
   _flatLayout?: boolean;
+  /** Set when the planner replaces an existing copy (new format or changed source). */
+  _overwrite?: boolean;
 };
 
 type PlaylistSourceIdentity = { type: string; id: string; name: string; pathId?: string };
@@ -63,10 +65,13 @@ export function trackToSyncInfo(
   playlistCtx?: { id?: string; name: string; index: number },
   flatLayout?: boolean,
 ): TrackSyncInfo {
-  // Fall back to track artist when the file has no albumArtist tag — not every
-  // library is tagged with it. Treat empty strings as missing (some Subsonic
+  // Fall back to track artist when the file has no album artist tag — not every
+  // library is tagged with it. Navidrome sends only the OpenSubsonic
+  // `displayAlbumArtist`. Treat empty strings as missing (some Subsonic
   // servers return "" rather than omitting the field).
-  const albumArtist = (track.albumArtist?.trim() || track.artist?.trim() || '');
+  const albumArtist = (
+    track.albumArtist?.trim() || track.displayAlbumArtist?.trim() || track.artist?.trim() || ''
+  );
   return {
     id: track.id, url,
     suffix: track.suffix ?? 'mp3',
@@ -75,10 +80,12 @@ export function trackToSyncInfo(
     album: track.album ?? '',
     title: track.title ?? '',
     trackNumber: track.track ?? null,
+    discNumber: track.discNumber ?? null,
     duration: track.duration,
     playlistName: playlistCtx?.name ?? track._playlistName,
     playlistId: playlistCtx?.id ?? track._playlistId,
     playlistIndex: playlistCtx?.index ?? track._playlistIndex,
     flatLayout: flatLayout ?? track._flatLayout === true,
+    overwrite: track._overwrite === true,
   };
 }

@@ -12,6 +12,14 @@ export const migration = {
   genreTagsTitle: 'Se actualizează indexul de genuri…',
   genreTagsBody: 'Se indexează genurile pentru navigare și filtre. Rulează o dată după actualizare.',
   genreTagsFailed: 'Actualizarea indexului de genuri a eșuat',
+  fileMoodTagsTitle: 'Se actualizează indexul stărilor de spirit…',
+  fileMoodTagsBody:
+    'Se indexează etichetele de stare de spirit din fișiere pentru navigare și filtrare. Această operațiune are loc o singură dată după actualizare.',
+  fileMoodTagsFailed: 'Actualizarea indexului stărilor de spirit a eșuat',
+  recordLabelTagsTitle: 'Se actualizează indexul caselor de discuri…',
+  recordLabelTagsBody:
+    'Se indexează casele de discuri pentru navigare. Această operațiune are loc o singură dată după actualizare.',
+  recordLabelTagsFailed: 'Actualizarea indexului caselor de discuri a eșuat',
   scopeBrowseProjectionTitle: 'Se actualizează indexul de navigare al bibliotecii…',
   scopeBrowseProjectionBody: 'Se pregătește catalogul de albume pentru navigare mai rapidă. Aceasta rulează o singură dată după actualizare.',
   scopeBrowseProjectionFailed: 'Actualizarea indexului de navigare al bibliotecii a eșuat',

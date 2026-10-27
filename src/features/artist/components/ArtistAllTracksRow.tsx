@@ -11,10 +11,13 @@ import { ResolvedArtistRefInline } from '@/ui/ResolvedArtistRefInline';
 import { useAuthStore } from '@/store/authStore';
 import { resolveTrackArtistRefs, useTrackPlayStats } from '@/features/playback';
 import { OptionalBrowseTrackRowCoverThumb } from '@/cover/TrackRowCoverThumb';
+import { ExplicitTitle } from '@/ui/ExplicitBadge';
+import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
+import { isExplicit } from '@/lib/media/explicitStatus';
 
 export interface ArtistAllTracksRowCallbacks {
   activate: (song: SubsonicSong, index: number, e: React.MouseEvent) => void;
-  dblOrbit: (song: SubsonicSong, e: React.MouseEvent) => void;
+  doubleClick: (song: SubsonicSong, index: number, e: React.MouseEvent) => void;
   context: (song: SubsonicSong, e: React.MouseEvent) => void;
   mouseDownRow: (song: SubsonicSong, e: React.MouseEvent) => void;
   play: (index: number) => void;
@@ -33,7 +36,10 @@ interface Props {
   showEq: boolean;
   isPreviewing: boolean;
   previewStarted: boolean;
-  orbitActive: boolean;
+  /** Double click does something (Orbit add, or play in double-click mode). */
+  doubleClickActive: boolean;
+  /** Set only on the list's cursor row (`useTrackListCursor`). */
+  cursorRowId?: string;
   cb: ArtistAllTracksRowCallbacks;
 }
 
@@ -44,7 +50,7 @@ interface Props {
  */
 function ArtistAllTracksRow({
   song, index: i, visibleCols, gridStyle, showBitrate,
-  isActive, showEq, isPreviewing, previewStarted, orbitActive, cb,
+  isActive, showEq, isPreviewing, previewStarted, doubleClickActive, cursorRowId, cb,
 }: Props) {
   const { t } = useTranslation();
   // `song.serverId` is only stamped on owned/multi-server rows.
@@ -53,11 +59,12 @@ function ArtistAllTracksRow({
 
   return (
     <div
-      className={`track-row track-row-va track-row-with-actions${isActive ? ' active' : ''}`}
+      id={cursorRowId}
+      className={`track-row track-row-va track-row-with-actions${isActive ? ' active' : ''}${cursorRowId ? ' track-row--cursor' : ''}`}
       style={gridStyle}
       role="row"
       onClick={e => cb.activate(song, i, e)}
-      onDoubleClick={orbitActive ? e => cb.dblOrbit(song, e) : undefined}
+      onDoubleClick={doubleClickActive ? e => cb.doubleClick(song, i, e) : undefined}
       onContextMenu={e => cb.context(song, e)}
       onMouseDown={e => cb.mouseDownRow(song, e)}
     >
@@ -99,7 +106,8 @@ function ArtistAllTracksRow({
                   : <ChevronRight size={14} className="playlist-suggestion-preview-icon playlist-suggestion-preview-icon-play" />}
               </button>
               <OptionalBrowseTrackRowCoverThumb song={song} size="dense" />
-              <span className="track-title">{song.title}</span>
+              <ExplicitCoverVeil explicit={isExplicit(song)} />
+              <ExplicitTitle status={song.explicitStatus}><span className="track-title">{song.title}</span></ExplicitTitle>
             </div>
           );
           case 'album': return (

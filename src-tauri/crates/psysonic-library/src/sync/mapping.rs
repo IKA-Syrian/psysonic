@@ -27,6 +27,7 @@ const ALBUM_TO_TRACK_RAW_KEYS: &[(&str, &str)] = &[
     ("albumArtists", "albumArtists"),
     ("displayArtist", "displayAlbumArtist"),
     ("displayAlbumArtist", "displayAlbumArtist"),
+    ("recordLabels", "recordLabels"),
 ];
 
 pub(crate) fn album_version_from_tags(raw: &Value) -> Option<&str> {
@@ -44,28 +45,116 @@ pub(crate) fn album_version_from_tags(raw: &Value) -> Option<&str> {
     }
 }
 
+/// Navidrome's Subsonic API sends a title with the track subtitle appended and an
+/// album name with the album version appended (`FullTitle` / `FullAlbumName` in
+/// `model/mediafile.go`, v0.64.0, on by default through `Subsonic.AppendSubtitle`
+/// and `Subsonic.AppendAlbumVersion`). The native `/api/song` row carries the bare
+/// value and the suffix only in `tags.subtitle` / `tags.albumversion`. Appending it
+/// here the same way keeps both ingest paths on the same text (issue #1638).
+///
+/// A value that already ends with the suffix is returned unchanged, so rows that
+/// arrived through the Subsonic path are never suffixed twice.
+pub(crate) fn append_navidrome_suffix(base: &str, suffix: Option<&str>) -> String {
+    let Some(suffix) = suffix.map(str::trim).filter(|suffix| !suffix.is_empty()) else {
+        return base.to_string();
+    };
+    let bracketed = matches!(
+        (suffix.chars().next(), suffix.chars().last()),
+        (Some('('), Some(')'))
+            | (Some('['), Some(']'))
+            | (Some('{'), Some('}'))
+            | (Some('<'), Some('>'))
+    ) && suffix.chars().count() >= 2;
+    let appended = if bracketed {
+        format!(" {suffix}")
+    } else {
+        format!(" ({suffix})")
+    };
+    if base.ends_with(&appended) {
+        return base.to_string();
+    }
+    format!("{base}{appended}")
+}
+
+pub(crate) fn subtitle_from_tags(raw: &Value) -> Option<String> {
+    first_non_empty_string(raw.pointer("/tags/subtitle"))
+}
+
 fn track_raw_json(raw: &Value) -> String {
-    let needs_normalized_version = raw
-        .as_object()
-        .is_some_and(|object| !object.contains_key("albumVersion"));
-    if needs_normalized_version {
-        if let Some(version) = album_version_from_tags(raw) {
-            let mut normalized = raw.clone();
-            if let Some(object) = normalized.as_object_mut() {
+    let Some(raw_object) = raw.as_object() else {
+        return raw.to_string();
+    };
+
+    // Navidrome/OpenSubsonic serializes `moods: []` even for moodless songs.
+    // Empty moods already clear stale native tags.mood during sparse merge and
+    // project as empty without provenance, so only non-empty values need the
+    // marker. This keeps the no-clone fast path for the vast majority of S1
+    // full-rescan rows.
+    let has_nonempty_moods = match raw_object.get("moods") {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|mood| !mood.trim().is_empty()),
+        Some(Value::String(mood)) => !mood.trim().is_empty(),
+        _ => false,
+    };
+    let normalized_version = if !raw_object.contains_key("albumVersion") {
+        album_version_from_tags(raw).map(str::to_string)
+    } else {
+        None
+    };
+
+    // Preserve the original fast path when no normalization is needed.
+    if !has_nonempty_moods && normalized_version.is_none() {
+        return raw.to_string();
+    }
+
+    let mut normalized = raw.clone();
+    if let Some(object) = normalized.as_object_mut() {
+        if let Some(version) = normalized_version {
+            object.insert("albumVersion".to_string(), Value::String(version));
+        }
+        if has_nonempty_moods {
+            object.insert("_psysonicMoodsAuthoritative".to_string(), Value::Bool(true));
+        }
+    }
+
+    normalized.to_string()
+}
+
+fn navidrome_track_raw_json(raw: &Value) -> String {
+    // Native rows already require normalization, so cloning is confined to
+    // this path instead of penalizing every unchanged OpenSubsonic track.
+    let mut normalized = raw.clone();
+
+    if let Some(object) = normalized.as_object_mut() {
+        if !object.contains_key("albumVersion") {
+            if let Some(version) = album_version_from_tags(raw) {
                 object.insert(
                     "albumVersion".to_string(),
                     Value::String(version.to_string()),
                 );
             }
-            return normalized.to_string();
         }
+
+        // This function is only used for a fresh Navidrome /api/song payload,
+        // so absence of tags.mood is an authoritative clear.
+        let moods = match raw.pointer("/tags/mood") {
+            Some(Value::Array(items)) => Value::Array(items.clone()),
+            Some(Value::String(mood)) => Value::Array(vec![Value::String(mood.clone())]),
+            _ => Value::Array(Vec::new()),
+        };
+        object.insert("moods".to_string(), moods);
+        object.insert("_psysonicMoodsAuthoritative".to_string(), Value::Bool(true));
     }
-    raw.to_string()
+
+    normalized.to_string()
 }
 
 /// Copy album-level OpenSubsonic fields onto each track `raw_json` during S2/getAlbum
 /// ingest, so track-grouped album browse can filter compilations and the album header
-/// can show individually linkable artists instead of one joined credit string.
+/// can show individually linkable artists instead of one joined credit string. The
+/// album's `recordLabels` ride along so label browse works for OpenSubsonic rows too.
 ///
 /// Never overwrites a value the track already carries — the track's own field is more
 /// specific — and never writes an explicit null. Entries are applied in order, so the
@@ -323,11 +412,15 @@ pub fn navidrome_song_to_track_row(
     let normalized = normalize_navidrome_participants(raw);
     let raw = &normalized;
     let id = raw.get("id").and_then(|v| v.as_str())?.to_string();
-    let title = raw
-        .get("title")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .to_string();
+    let title = append_navidrome_suffix(
+        raw.get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default(),
+        subtitle_from_tags(raw).as_deref(),
+    );
+    let album = string_field(raw, "album")
+        .map(|album| append_navidrome_suffix(&album, album_version_from_tags(raw)))
+        .unwrap_or_default();
     let server_updated_at = parse_raw_timestamp_ms(raw, &["updatedAt"]);
     let library_id = json_string_field(raw, "libraryId")
         .or_else(|| json_string_field(raw, "library_id"))
@@ -342,7 +435,7 @@ pub fn navidrome_song_to_track_row(
             .or_else(|| string_field(raw, "sortName")),
         artist: string_field(raw, "artist"),
         artist_id: string_field(raw, "artistId"),
-        album: string_field(raw, "album").unwrap_or_default(),
+        album,
         album_id: string_field(raw, "albumId"),
         album_artist: string_field(raw, "albumArtist"),
         duration_sec: duration_seconds(raw),
@@ -385,7 +478,7 @@ pub fn navidrome_song_to_track_row(
         server_created_at: parse_raw_timestamp_ms(raw, &["createdAt"]),
         deleted: false,
         synced_at,
-        raw_json: track_raw_json(raw),
+        raw_json: navidrome_track_raw_json(raw),
     })
 }
 

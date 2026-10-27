@@ -416,6 +416,60 @@ fn stale_commit_does_not_discard_the_latest_prepared_ring() {
 }
 
 #[test]
+fn commit_accepts_the_f32_rounded_position_from_rodio() {
+    let source = ControlledSource {
+        control: Arc::new((Mutex::new(ControlledState::default()), Condvar::new())),
+        marker: -0.75,
+    };
+    let (mut offload, handle, _gate) =
+        PreserveOffload::spawn_permanent(source, PlaybackRateAtomics::new(), 1_000, 1);
+
+    // Pair measured in #1657: the seek was prepared at the first position, and
+    // rodio's `Speed::try_seek` handed the commit the second one.
+    let prepared_at = Duration::from_nanos(50_427_503_008);
+    let rounded = Duration::from_nanos(50_427_501_678);
+    let ticket = handle
+        .prepare_seek(prepared_at, Duration::ZERO, Duration::from_secs(1))
+        .unwrap()
+        .expect("prepared seek");
+    assert_eq!(ticket.commit_position(), prepared_at);
+
+    assert!(offload
+        .commit_prepared_seek(prepared_at + Duration::from_millis(5))
+        .is_err());
+    offload
+        .commit_prepared_seek(rounded)
+        .expect("rounded commit position must match the prepared seek");
+    offload
+        .commit_prepared_seek(prepared_at)
+        .expect("repeated commit must hit the active seek");
+    assert_eq!(offload.pop(), Some(0.75));
+}
+
+#[test]
+fn commit_accepts_the_f32_rounded_position_on_long_tracks() {
+    let source = ControlledSource {
+        control: Arc::new((Mutex::new(ControlledState::default()), Condvar::new())),
+        marker: -0.75,
+    };
+    let (mut offload, handle, _gate) =
+        PreserveOffload::spawn_permanent(source, PlaybackRateAtomics::new(), 1_000, 1);
+
+    // Above 2^16 s an f32 step is 7.8125 ms, so the round-trip drifts by 3.9 ms here.
+    let prepared_at = Duration::from_secs_f64(70_000.003_9);
+    let rounded = Duration::from_secs_f32(prepared_at.as_secs_f32());
+    handle
+        .prepare_seek(prepared_at, Duration::ZERO, Duration::from_secs(1))
+        .unwrap()
+        .expect("prepared seek");
+
+    offload
+        .commit_prepared_seek(rounded)
+        .expect("rounded commit position must match the prepared seek");
+    assert_eq!(offload.pop(), Some(0.75));
+}
+
+#[test]
 fn dropping_a_blocked_permanent_offload_never_joins_the_worker() {
     let control = Arc::new((
         Mutex::new(ControlledState {
@@ -521,4 +575,34 @@ fn worker_failure_releases_a_newer_soft_timed_out_seek() {
 
     assert!(first.join().unwrap().is_err());
     assert!(latest.join().unwrap().is_err());
+}
+
+#[test]
+fn preserve_state_reports_reset_until_pitch_work_runs() {
+    let mut state = PreserveState::for_channels(2);
+    assert!(state.is_reset(2));
+    assert!(
+        !state.is_reset(1),
+        "a channel-count change still needs a reset"
+    );
+
+    for ch in &mut state.channels {
+        ch.frame.extend(std::iter::repeat_n(0.0, FRAME_BLOCK));
+    }
+    state.process_block(1.25, 1.0, 44_100.0);
+    assert!(!state.is_reset(2), "pitch work leaves state to clear");
+
+    state.reset(2);
+    assert!(state.is_reset(2));
+}
+
+#[test]
+fn passthrough_target_matches_the_refill_mark() {
+    let capacity = 1_000;
+    let (mut prod, _cons) = HeapRb::<f32>::new(capacity).split();
+    let target = (capacity as f32 * RB_TARGET_FILL) as usize;
+    prod.push_iter(std::iter::repeat_n(0.0, target - 1));
+    assert!(!ring_at_passthrough_target(&prod, capacity));
+    let _ = prod.try_push(0.0);
+    assert!(ring_at_passthrough_target(&prod, capacity));
 }

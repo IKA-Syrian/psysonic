@@ -8,6 +8,9 @@ import { useDragDrop } from '@/lib/dnd/DragDropContext';
 import { useDragPress } from '@/lib/dnd/useDragPress';
 import { formatRandomMixDuration } from '@/features/randomMix/utils/randomMixHelpers';
 import { OptionalBrowseTrackRowCoverThumb } from '@/cover/TrackRowCoverThumb';
+import { ExplicitTitle } from '@/ui/ExplicitBadge';
+import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
+import { isExplicit } from '@/lib/media/explicitStatus';
 
 interface Props {
   song: SubsonicSong;
@@ -19,6 +22,12 @@ interface Props {
   isPlaying: boolean;
   isContextActive: boolean;
   orbitActive: boolean;
+  /** Settings → Input: the row plays on double click instead of single click. */
+  doubleClickToPlay: boolean;
+  /** Set only on the list's cursor row (`useTrackListCursor`). */
+  cursorRowId?: string;
+  /** A plain click moved the list cursor onto this row. */
+  onCursorClick: (e: React.MouseEvent) => void;
   previewingId: string | null;
   previewAudioStarted: boolean;
   starredOverrides: Record<string, boolean>;
@@ -39,8 +48,8 @@ interface Props {
 
 export default function RandomMixTrackRow({
   song, idx, gridTemplateColumns, track,
-  isCurrentTrack, isPlaying, isContextActive, orbitActive,
-  previewingId, previewAudioStarted, isStarred,
+  isCurrentTrack, isPlaying, isContextActive, orbitActive, doubleClickToPlay,
+  cursorRowId, onCursorClick, previewingId, previewAudioStarted, isStarred,
   customGenreBlacklist, addedArtist, addedGenre, showGenreCol, isGenreBlocked,
   onPlay, onQueueHint, onAddTrackToOrbit, onOpenContextMenu, onToggleStar,
   onBlacklistArtist, onBlacklistGenre,
@@ -66,16 +75,20 @@ export default function RandomMixTrackRow({
 
   return (
     <div
-      className={`track-row track-row-with-actions${isCurrentTrack ? ' active' : ''}${isContextActive ? ' context-active' : ''}`}
+      id={cursorRowId}
+      className={`track-row track-row-with-actions${isCurrentTrack ? ' active' : ''}${isContextActive ? ' context-active' : ''}${cursorRowId ? ' track-row--cursor' : ''}`}
       style={{ gridTemplateColumns }}
       onClick={e => {
         if ((e.target as HTMLElement).closest('button, a, input')) return;
+        onCursorClick(e);
         if (orbitActive) { onQueueHint(); return; }
+        if (doubleClickToPlay) return;
         onPlay();
       }}
-      onDoubleClick={orbitActive ? e => {
+      onDoubleClick={orbitActive || doubleClickToPlay ? e => {
         if ((e.target as HTMLElement).closest('button, a, input')) return;
-        onAddTrackToOrbit(song.id);
+        if (orbitActive) onAddTrackToOrbit(song.id);
+        else onPlay();
       } : undefined}
       role="row"
       onContextMenu={onOpenContextMenu}
@@ -121,7 +134,8 @@ export default function RandomMixTrackRow({
             : <ChevronRight size={14} className="playlist-suggestion-preview-icon playlist-suggestion-preview-icon-play" />}
         </button>
         <OptionalBrowseTrackRowCoverThumb song={song} size="dense" />
-        <span className="track-title">{song.title}</span>
+        <ExplicitCoverVeil explicit={isExplicit(song)} />
+        <ExplicitTitle status={song.explicitStatus}><span className="track-title">{song.title}</span></ExplicitTitle>
       </div>
 
       <div className="track-artist-cell">

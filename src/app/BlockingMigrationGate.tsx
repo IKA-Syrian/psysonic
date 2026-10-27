@@ -3,29 +3,56 @@ import { useTranslation } from 'react-i18next';
 import { retryBlockingMigration } from '@/app/hooks/useMigrationOrchestrator';
 import { useMigrationStore } from '../store/migrationStore';
 
+/** Index backfill steps: their own texts instead of the server-index migration's. */
+const INDEX_STEP_TEXT = {
+  genreTags: {
+    title: 'migration.genreTagsTitle',
+    body: 'migration.genreTagsBody',
+    failed: 'migration.genreTagsFailed',
+  },
+  fileMoodTags: {
+    title: 'migration.fileMoodTagsTitle',
+    body: 'migration.fileMoodTagsBody',
+    failed: 'migration.fileMoodTagsFailed',
+  },
+  recordLabelTags: {
+    title: 'migration.recordLabelTagsTitle',
+    body: 'migration.recordLabelTagsBody',
+    failed: 'migration.recordLabelTagsFailed',
+  },
+  scopeBrowseProjection: {
+    title: 'migration.scopeBrowseProjectionTitle',
+    body: 'migration.scopeBrowseProjectionBody',
+    failed: 'migration.scopeBrowseProjectionFailed',
+  },
+} as const;
+
 function MigrationModal() {
   const { t } = useTranslation();
   const phase = useMigrationStore(s => s.phase);
   const step = useMigrationStore(s => s.step);
   const progress = useMigrationStore(s => s.progress);
   const genreTagsProgress = useMigrationStore(s => s.genreTagsProgress);
+  const fileMoodTagsProgress = useMigrationStore(s => s.fileMoodTagsProgress);
+  const recordLabelTagsProgress = useMigrationStore(s => s.recordLabelTagsProgress);
   const scopeBrowseProjectionProgress = useMigrationStore(s => s.scopeBrowseProjectionProgress);
   const inspect = useMigrationStore(s => s.inspect);
   const error = useMigrationStore(s => s.lastError);
-  const isGenreTags = step === 'genreTags';
-  const isScopeBrowseProjection = step === 'scopeBrowseProjection';
-  const migrationTitle = isGenreTags
-    ? t('migration.genreTagsTitle')
-    : isScopeBrowseProjection
-      ? t('migration.scopeBrowseProjectionTitle')
-      : t('migration.migrating');
-  const migrationBody = isGenreTags
-    ? t('migration.genreTagsBody')
-    : isScopeBrowseProjection
-      ? t('migration.scopeBrowseProjectionBody')
-      : (progress ? `${progress.stage} - ${progress.table}` : t('migration.working'));
-  const activeProgress = isGenreTags ? genreTagsProgress : isScopeBrowseProjection ? scopeBrowseProjectionProgress : progress;
-
+  const stepText = step && step !== 'serverIndex' ? INDEX_STEP_TEXT[step] : null;
+  const isTagBackfill = step === 'genreTags' || step === 'fileMoodTags' || step === 'recordLabelTags';
+  const migrationTitle = stepText ? t(stepText.title) : t('migration.migrating');
+  const migrationBody = stepText
+    ? t(stepText.body)
+    : (progress ? `${progress.stage} - ${progress.table}` : t('migration.working'));
+  const activeProgress = step === 'genreTags'
+    ? genreTagsProgress
+    : step === 'fileMoodTags'
+      ? fileMoodTagsProgress
+      : step === 'recordLabelTags'
+        ? recordLabelTagsProgress
+        : step === 'scopeBrowseProjection'
+          ? scopeBrowseProjectionProgress
+          : progress;
   const migratedRows = (inspect?.library.totalLegacyRows ?? 0) + (inspect?.analysis.totalLegacyRows ?? 0);
   return (
     <div style={{
@@ -48,9 +75,9 @@ function MigrationModal() {
       >
         {phase === 'inspecting' && (
           <>
-            <h3>{isGenreTags ? t('migration.genreTagsTitle') : isScopeBrowseProjection ? t('migration.scopeBrowseProjectionTitle') : t('migration.preparing')}</h3>
+            <h3>{stepText ? t(stepText.title) : t('migration.preparing')}</h3>
             <p style={{ color: 'var(--text-muted)' }}>
-              {isGenreTags ? t('migration.genreTagsBody') : isScopeBrowseProjection ? t('migration.scopeBrowseProjectionBody') : t('migration.preparingBody')}
+              {stepText ? t(stepText.body) : t('migration.preparingBody')}
             </p>
           </>
         )}
@@ -63,7 +90,7 @@ function MigrationModal() {
             <p style={{ color: 'var(--text-muted)' }}>
               {activeProgress ? `${activeProgress.done} / ${activeProgress.total}` : t('migration.working')}
             </p>
-            {!isGenreTags && inspect?.hasSkippedUnknownServerRows ? (
+            {!isTagBackfill && inspect?.hasSkippedUnknownServerRows ? (
               <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>
                 {t('migration.skippedRows')}
               </p>
@@ -72,7 +99,7 @@ function MigrationModal() {
         )}
         {phase === 'error' && (
           <>
-            <h3>{isGenreTags ? t('migration.genreTagsFailed') : isScopeBrowseProjection ? t('migration.scopeBrowseProjectionFailed') : t('migration.failed')}</h3>
+            <h3>{stepText ? t(stepText.failed) : t('migration.failed')}</h3>
             <p style={{ color: 'var(--text-muted)' }}>{String(error ?? '').slice(0, 200)}</p>
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button className="btn-primary" onClick={() => retryBlockingMigration()}>{t('migration.retry')}</button>

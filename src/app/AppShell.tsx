@@ -14,7 +14,7 @@ import DevNetworkModeToggle from '@/app/DevNetworkModeToggle';
 import { NowPlayingDropdown } from '@/features/nowPlaying';
 import QueuePanel from '@/features/queue';
 import AppRoutes from './AppRoutes';
-import FullscreenPlayer, { FullscreenPlayerImmersive, FullscreenPlayerPrism } from '@/features/fullscreenPlayer';
+import FullscreenPlayer, { FullscreenPlayerImmersive, FullscreenPlayerPrism, useFsAutoOpen } from '@/features/fullscreenPlayer';
 import ContextMenu from '@/features/contextMenu/components/ContextMenu';
 import SongInfoModal from '@/features/playback/components/SongInfoModal';
 import PlaybackAlternativeModal from '@/features/playback/components/PlaybackAlternativeModal';
@@ -48,6 +48,8 @@ import { useLibraryServerReachability } from '@/app/hooks/useLibraryServerReacha
 import { useMusicFoldersDiscovery } from '@/app/hooks/useMusicFoldersDiscovery';
 import { useQueueResizer } from '@/features/queue';
 import { useGlobalDndAndSelectionBlockers } from '@/lib/hooks/useGlobalDndAndSelectionBlockers';
+import { useTracklistWheelChaining } from '@/lib/hooks/useTracklistWheelChaining';
+import { useTouchpadSwipeNavigation } from '@/app/hooks/useTouchpadSwipeNavigation';
 import { useAppActivityTracking } from '@/app/hooks/useAppActivityTracking';
 import { useMainScrollingIndicator } from '@/app/hooks/useMainScrollingIndicator';
 import { useCoverNavigationPriority } from '@/cover/useCoverNavigationPriority';
@@ -61,6 +63,7 @@ import { useConnectionStatus } from '@/lib/hooks/useConnectionStatus';
 import { useIdlePlayQueuePull } from '@/app/hooks/useIdlePlayQueuePull';
 import { useShareBootstrap } from '@/features/share';
 import { DiscordBanner, useAccumulatedUsage } from '@/features/discordBanner';
+import { PrivateModeToggle } from '@/features/privateMode/ui';
 import { useAuthStore } from '../store/authStore';
 import { usePlayerStore } from '@/features/playback/store/playerStore';
 import '@/features/playback/store/previewPlayerVolumeSync';
@@ -236,7 +239,10 @@ export function AppShell() {
   } = useQueueResizer({ isMobile, isSidebarCollapsed, isQueueVisible, toggleQueue });
 
   useGlobalDndAndSelectionBlockers();
+  useTracklistWheelChaining();
+  useTouchpadSwipeNavigation();
   useAppActivityTracking();
+  useFsAutoOpen();
 
   const isMobilePlayer = isMobile && location.pathname === '/now-playing';
 
@@ -284,6 +290,7 @@ export function AppShell() {
           <LiveSearch />
           {import.meta.env.DEV && <DevNetworkModeToggle />}
           <div className="spacer" />
+          <PrivateModeToggle />
           <ConnectionIndicator status={connStatus} isLan={isLan} serverName={serverName} />
           <MusicNetworkIndicator />
           <NowPlayingDropdown />

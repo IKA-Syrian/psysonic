@@ -39,6 +39,26 @@ describe('computeAuthStoreRehydration — scrobbling', () => {
   });
 });
 
+describe('computeAuthStoreRehydration — fullscreenAutoOpenMinutes', () => {
+  beforeEach(resetAuthStore);
+
+  it.each([
+    [undefined, 0],
+    [null, 0],
+    ['5', 0],
+    [3, 0],
+    [-1, 0],
+    [5, 5],
+    [30, 30],
+  ] as const)('sanitizes %j to %s', (value, expected) => {
+    const state = {
+      ...useAuthStore.getState(),
+      fullscreenAutoOpenMinutes: value,
+    } as unknown as AuthState;
+    expect(computeAuthStoreRehydration(state).fullscreenAutoOpenMinutes).toBe(expected);
+  });
+});
+
 describe('computeAuthStoreRehydration — queueDurationDisplayMode', () => {
   beforeEach(() => {
     resetAuthStore();
@@ -142,6 +162,22 @@ describe('computeAuthStoreRehydration — Library browse scope', () => {
     } as AuthState);
 
     expect(patch.libraryBrowseServerIds).toEqual([server.id]);
+  });
+
+  it('repairs a stale legacy audiobook filter from the sidebar scope for rollback', async () => {
+    const server = { id: 'a', name: 'A', url: 'https://a.test', username: 'u', password: 'p' };
+    const old = { ...useAuthStore.getState(), servers: [server], activeServerId: 'a',
+      libraryBrowseServerIds: ['a'], libraryBrowseSelectionByServer: { a: [] },
+      musicLibrarySelectionByServer: { a: [] }, musicLibraryFilterByServer: { a: 'audiobooks' } };
+    localStorage.setItem('psysonic-auth', JSON.stringify({ state: old, version: 1 }));
+
+    await useAuthStore.persist.rehydrate();
+
+    expect(useAuthStore.getState().musicLibraryFilterByServer.a).toBe('all');
+    expect(useAuthStore.getState().musicLibrarySelectionByServer.a).toEqual([]);
+    const stored = JSON.parse(localStorage.getItem('psysonic-auth') ?? '{}');
+    expect(stored.version).toBe(2);
+    expect(stored.state.musicLibraryFilterByServer.a).toBe('all');
   });
 });
 

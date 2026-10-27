@@ -126,6 +126,10 @@ export interface SubsonicSong {
    * 2024"); `deriveAlbumComment` decides when that is safe to show as one.
    */
   comment?: string;
+  /** Album edition label the local index copies onto each track (`version` / `tags.albumversion`). */
+  albumVersion?: string;
+  /** OpenSubsonic: `"explicit"`, `"clean"` or `""` (from the ITUNESADVISORY / MP4 `rtng` tag). */
+  explicitStatus?: string;
 }
 
 export interface InternetRadioStation {
