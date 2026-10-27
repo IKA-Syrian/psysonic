@@ -1,7 +1,8 @@
 import { useThemeStore } from '@/store/themeStore';
 import { useArtistFanart } from '@/cover/useArtistFanart';
 import { backdropFromConfig } from '@/cover/artistBackdrop';
-import { useArtistCoverRef } from '@/cover/useLibraryCoverRef';
+import { useArtistCoverRef, usePlaybackTrackCoverRef } from '@/cover/useLibraryCoverRef';
+import { useIsArtistPlaceholder } from '@/cover/useIsArtistPlaceholder';
 import { usePlaybackCoverArt } from '@/cover/usePlaybackCoverArt';
 import { useCachedUrl } from '@/ui/CachedImage';
 import type { Track } from '@/lib/media/trackTypes';
@@ -25,8 +26,14 @@ export function useFsArtistBackdrop(currentTrack: Track | null): string {
     useArtistCoverRef(currentTrack?.artistId, undefined, undefined, { libraryResolve: false }) ?? undefined;
   const artistImage = usePlaybackCoverArt(artistCoverRef, 2000, { fullRes: true });
   const artistImgUrl = useCachedUrl(artistImage.src, artistImage.cacheKey, true);
+  // Fork patch: Navidrome's star placeholder (artist without a picture) is
+  // replaced by the song's own cover; nothing is shown while it is checked.
+  const placeholder = useIsArtistPlaceholder(artistImgUrl);
+  const songCover = usePlaybackCoverArt(usePlaybackTrackCoverRef(currentTrack ?? undefined), 2000, { fullRes: true });
+  const songCoverUrl = useCachedUrl(songCover.src, songCover.cacheKey, true);
+  const navidrome = placeholder === false ? artistImgUrl : placeholder ? songCoverUrl : '';
 
   return cfg.enabled
-    ? backdropFromConfig(cfg.sources, { fanart, navidrome: artistImgUrl }).url
+    ? backdropFromConfig(cfg.sources, { fanart, navidrome }).url
     : '';
 }

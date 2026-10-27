@@ -4,12 +4,13 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 
 ## What is different
 
-- **Song covers:** everywhere a single song is shown (player bar, Now Playing, queue, fullscreen, song cards, track lists) it shows the song's own embedded cover (`mf-<songId>` on Navidrome) instead of the album cover. See `songOwnCoverEntry` (`src/cover/resolveEntry.ts`) and `usePlaybackTrackCoverRef`. Nine upstream cover tests that expect album covers fail on purpose; they are left untouched to avoid merge conflicts.
+- **Song covers:** everywhere a single song is shown (player bar, Now Playing, queue, fullscreen, song cards, track lists) it shows the song's own embedded cover (`mf-<songId>` on Navidrome) instead of the album cover. See `songOwnCoverEntry` (`src/cover/resolveEntry.ts`) and `usePlaybackTrackCoverRef`. Nine upstream cover tests that expect album covers fail on purpose; they are left untouched to avoid merge conflicts. The settings-backup key test also fails because `psysonic_fork_album_reversed` is not in upstream's backup list, for the same reason.
 - **Crossfade on skip:** in classic crossfade mode, Next/Previous also fades over the crossfade length (`src/features/playback/utils/playback/autodjManualBlend.ts`).
 - **Lyrics stay in sync after a crossfade:** the outgoing track no longer adds its fade-out samples to the shared position counter, which made the new track's position (and synced lyrics) run ahead (`COUNT_EPOCH` in `src-tauri/crates/psysonic-audio/src/sources.rs`).
 - **Big albums open faster:** rows outside the view skip layout and paint (`content-visibility` rule at the end of `src/styles/components/tracklist.css`).
 - **Discord covers for songs in a shared album:** the Apple artwork lookup also searches by first artist + each part of the song title, and caches per song (`fork_song_search` in `src-tauri/crates/psysonic-integration/src/discord/artwork.rs`).
 - **Reverse an album with `#`:** clicking the `#` header flips the album to newest-first, remembered per album; Play, Add to queue and clicking a song follow that order (`useAlbumReversedOrder`, `AlbumDetail.tsx`).
+- **No star backdrop:** when an artist has no picture, Navidrome serves its grey star placeholder; the fullscreen player recognises it by its pixels and uses the song's cover as the background instead (`useIsArtistPlaceholder`, `useFsArtistBackdrop.ts`).
 - **Updates come from this fork:** the in-app update check reads this fork's releases (`src/features/updater`). `src-tauri/fork.conf.json` swaps in this fork's updater key and feed at build time.
 
 ## How releases happen
@@ -18,7 +19,7 @@ The **Fork sync and release** workflow runs every day. When upstream's `release`
 
 ## If a run fails
 
-Usually upstream changed the same lines as a patch. Merge `upstream/release` into `covers` locally, fix the conflict, push, then run the workflow by hand.
+Usually upstream changed the same lines as a patch. If only version and lock files conflict (`package.json`, `Cargo.toml`, `tauri.conf.json`, `flake.lock`, ...), the fork never changes them: take upstream's side (`git checkout --theirs`). Merge `upstream/release` into `covers` locally, fix the conflict, push, then run the workflow by hand.
 
 - **Branch:** `covers` is the default branch, based on upstream `release` (stable versions only).
 - **Signing key:** repo secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The public half is in `src-tauri/fork.conf.json`. If the key is lost, generate a new one, update both places and reinstall once by hand, because installed copies only accept updates signed with the old key.
