@@ -43,18 +43,26 @@ function check(url: string): Promise<boolean> {
   });
 }
 
-/** `null` while the image is being checked, then whether it is the placeholder. */
+/**
+ * `null` while the image is being checked, then whether it is the placeholder.
+ * Only cached `blob:` urls are checked: before the cache has the image,
+ * useCachedUrl returns the server url, which canvas cannot read and which gets
+ * a new token on every render.
+ */
 export function useIsArtistPlaceholder(url: string): boolean | null {
   const [state, setState] = useState<{ url: string; value: boolean | null }>({ url: '', value: null });
+  const readable = url.startsWith('blob:');
   useEffect(() => {
-    if (!url || results.has(url)) return;
+    if (!readable || results.has(url)) return;
     let alive = true;
     void check(url).then(value => {
+      if (results.size > 200) results.clear();
       results.set(url, value);
       if (alive) setState({ url, value });
     });
     return () => { alive = false; };
-  }, [url]);
+  }, [url, readable]);
   if (!url) return false;
+  if (!readable) return null;
   return results.get(url) ?? (state.url === url ? state.value : null);
 }
