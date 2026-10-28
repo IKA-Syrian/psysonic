@@ -4,7 +4,7 @@ use super::dto::{CoverCacheEnsureArgs, CoverCacheEnsureResult};
 use super::encode::write_webp_tier;
 use super::fetch::build_cover_art_url;
 use super::peek::{ensure_peek, peek_tier_path};
-use super::{external_ensure, fetch, metrics};
+use super::{external_ensure, fetch, fork_animated, metrics};
 use image::{DynamicImage, ImageReader};
 use psysonic_library::cover_backfill::{cover_fetch_recently_failed, COVER_FETCH_FAIL_MARKER};
 use psysonic_library::LibraryRuntime;
@@ -415,6 +415,11 @@ impl CoverCacheState {
         let (wrote_requested, fresh_tiers, derive_source) =
             tauri::async_runtime::spawn_blocking(move || -> EncodeTiersOutcome {
                 let _cpu_permit = cpu_permit;
+                // Fork patch: animated WebP covers keep their frames (fork_animated.rs).
+                let animated = match &source {
+                    CoverSource::Bytes(b) if fork_animated::is_animated_webp(b) => Some(b.clone()),
+                    _ => None,
+                };
                 let img = match source {
                     CoverSource::Image(i) => i,
                     CoverSource::Bytes(b) => decode_image_bytes(&b)?,
@@ -423,6 +428,9 @@ impl CoverCacheState {
                 let mut wrote_requested = false;
                 let mut fresh = Vec::new();
                 if quiet {
+                    if let Some(raw) = &animated {
+                        fork_animated::fill_derive_tiers(&dir_bg, raw)?;
+                    }
                     disk::write_derived_webp_tiers(&dir_bg, &img, requested)?;
                     wrote_requested = tier_exists(&dir_bg, requested).is_some();
                     return Ok((wrote_requested, fresh, None));
@@ -435,11 +443,21 @@ impl CoverCacheState {
                         continue;
                     }
                     let path = tier_path(&dir_bg, tier);
-                    write_webp_tier(&img, tier, &path)?;
+                    match &animated {
+                        Some(raw) if fork_animated::keeps_animation(tier) => {
+                            fork_animated::write_tier(&dir_bg, tier, raw)?
+                        }
+                        _ => write_webp_tier(&img, tier, &path)?,
+                    }
                     fresh.push((tier, path));
                     if tier == requested {
                         wrote_requested = true;
                     }
+                }
+                // The larger tiers are derived later from the decoded (still) source;
+                // write their animated originals now so that pass skips them.
+                if let Some(raw) = &animated {
+                    fork_animated::fill_derive_tiers(&dir_bg, raw)?;
                 }
                 // Hand the full-resolution decoded source back so larger tiers
                 // derive directly from it rather than from a smaller written tier.

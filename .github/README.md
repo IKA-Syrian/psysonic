@@ -11,6 +11,7 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 - **Discord covers for songs in a shared album:** the Apple artwork lookup also searches by first artist + each part of the song title, and caches per song (`fork_song_search` in `src-tauri/crates/psysonic-integration/src/discord/artwork.rs`).
 - **Reverse an album with `#`:** clicking the `#` header flips the album to newest-first, remembered per album; Play, Add to queue and clicking a song follow that order (`useAlbumReversedOrder`, `AlbumDetail.tsx`).
 - **No star backdrop:** when an artist has no picture, Navidrome serves its grey star placeholder; the fullscreen player recognises it by its pixels and uses the song's cover as the background instead (`useIsArtistPlaceholder`, `useFsArtistBackdrop.ts`).
+- **Animated covers:** a song whose embedded cover is an animated WebP keeps moving. The cover cache normally stores still WebP copies; for an animated source it stores the server's bytes unchanged for every size from 256 px up, while the 128 px list thumbnails stay still (`src-tauri/src/cover_cache/fork_animated.rs`, called from `ensure.rs`).
 - **Updates come from this fork:** the in-app update check reads this fork's releases (`src/features/updater`). `src-tauri/fork.conf.json` swaps in this fork's updater key and feed at build time.
 
 ## How releases happen
