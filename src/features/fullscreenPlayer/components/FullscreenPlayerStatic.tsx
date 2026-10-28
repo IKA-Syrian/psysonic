@@ -28,6 +28,8 @@ import { ExplicitTitle } from '@/ui/ExplicitBadge';
 import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
 import { isExplicit } from '@/lib/media/explicitStatus';
 import { useShowStarRatings } from '@/store/starRatings';
+import { useSongBackgroundClip } from '@/cover/songClips';
+import { ClipBackdrop } from '@/cover/ClipVideo';
 
 interface Props {
   onClose: () => void;
@@ -117,6 +119,8 @@ export default function FullscreenPlayerStatic({ onClose }: Props) {
   // with the scraper off the fanart source reports a non-pending miss, so the
   // chain steps straight to the Navidrome artist image.
   const bgUrl = useFsArtistBackdrop(currentTrack);
+  // Fork patch: the song's background clip, when the server has one.
+  const backgroundClip = useSongBackgroundClip(currentTrack);
 
   const nextTrack = useQueueTrackAt(queueIndex + 1);
 
@@ -162,6 +166,7 @@ export default function FullscreenPlayerStatic({ onClose }: Props) {
     >
       {/* Sharp background — no blur; eases in once its pixels are loaded. */}
       <FsBackground key={bgUrl} url={bgUrl} />
+      <ClipBackdrop src={backgroundClip} />
       <div className="fsp-scrim" aria-hidden="true" />
       <div className="fsp-vignette" aria-hidden="true" />
 

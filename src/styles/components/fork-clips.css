@@ -1,0 +1,32 @@
+/* Fork patch: animated cover clips (src/cover/ClipVideo.tsx). */
+.fork-clip {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.fork-clip.is-playing {
+  opacity: 1;
+}
+
+.fork-clip-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fork-clip-backdrop-fill {
+  filter: blur(40px) brightness(0.6);
+  transform: scale(1.15);
+}
+
+.fork-clip-backdrop-main {
+  object-fit: contain;
+}

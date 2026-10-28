@@ -5,6 +5,22 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	greet: (name: string) => __TAURI_INVOKE<string>("greet", { name }),
+	forkSetAnimatedCovers: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("fork_set_animated_covers", { enabled })),
+	forkSongBackgroundClip: (serverUrl: string, token: string, songId: string) => typedError<string | null, string>(__TAURI_INVOKE("fork_song_background_clip", { serverUrl, token, songId })),
+	/**  Bytes of background clips kept on disk (Settings shows it next to Clear). */
+	forkBackgroundClipsSize: () => typedError<number, string>(__TAURI_INVOKE("fork_background_clips_size")),
+	/**  Delete every kept clip and every "no clip" note. */
+	forkClearBackgroundClips: () => typedError<null, string>(__TAURI_INVOKE("fork_clear_background_clips")),
+	/**  Save the limits (MB; covers 0 = no limit). Covers are trimmed on the next start, clips right away. */
+	forkSetCacheLimits: (coverMb: number, clipsMb: number) => typedError<null, string>(__TAURI_INVOKE("fork_set_cache_limits", { coverMb, clipsMb })),
+	/**  Bytes of the webview caches that "Clear browser cache" removes. */
+	forkWebviewCacheSize: () => typedError<number, string>(__TAURI_INVOKE("fork_webview_cache_size")),
+	/**
+	 *  The webview keeps its cache files open while the app runs, so a small script
+	 *  waits for Psysonic to close, deletes the caches and starts it again; the app
+	 *  then quits. Windows only (the other platforms keep their caches elsewhere).
+	 */
+	forkClearWebviewCache: () => typedError<null, string>(__TAURI_INVOKE("fork_clear_webview_cache")),
 	/**  Min/max album years from the local track catalog (for Albums browse filter spinners). */
 	libraryGetCatalogYearBounds: (serverId: string) => typedError<CatalogYearBoundsDto, string>(__TAURI_INVOKE("library_get_catalog_year_bounds", { serverId })),
 	/**  Distinct album counts per track genre — same grouping as genre album browse. */

@@ -5,6 +5,8 @@ mod benchmark;
 mod canonical_migration;
 pub mod cli;
 mod cover_cache;
+mod fork_clips;
+mod fork_startup;
 pub(crate) mod desktop_palette;
 mod lib_commands;
 pub(crate) mod library_analysis_backfill;
@@ -106,6 +108,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .dangerously_cast_bigints_to_number()
         .commands(tauri_specta::collect_commands![
             crate::lib_commands::app_api::core::greet,
+            crate::fork_clips::fork_set_animated_covers,
+            crate::fork_clips::fork_song_background_clip,
+            crate::fork_clips::fork_background_clips_size,
+            crate::fork_clips::fork_clear_background_clips,
+            crate::fork_startup::fork_set_cache_limits,
+            crate::fork_startup::fork_webview_cache_size,
+            crate::fork_startup::fork_clear_webview_cache,
             psysonic_library::browse_support::library_get_catalog_year_bounds,
             psysonic_library::browse_support::library_get_genre_album_counts,
             psysonic_library::browse_support::library_get_mood_album_counts,
@@ -511,6 +520,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            fork_startup::run(app.handle());
             #[cfg(debug_assertions)]
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_title("Psysonic (Dev)");
@@ -577,6 +587,13 @@ pub fn run() {
         .on_window_event(startup::window_events::handle)
         .invoke_handler(tauri::generate_handler![
             greet,
+            fork_clips::fork_set_animated_covers,
+            fork_clips::fork_song_background_clip,
+            fork_clips::fork_background_clips_size,
+            fork_clips::fork_clear_background_clips,
+            fork_startup::fork_set_cache_limits,
+            fork_startup::fork_webview_cache_size,
+            fork_startup::fork_clear_webview_cache,
             theme_import::import_theme_zip,
             desktop_palette::read_desktop_palette,
             backup_export_library_db,

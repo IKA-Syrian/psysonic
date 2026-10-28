@@ -3,12 +3,26 @@
 //! The cache normally decodes every cover and writes still WebP tiers, which
 //! keeps only the first frame, so tiers from `MIN_TIER` up store the server's
 //! bytes as they are. The 128 px tier (dense lists, search) stays still.
+//! Settings → Integrations → Animated covers switches this off (covers cached
+//! while it was on stay animated until the cover cache is cleared).
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::disk::{tier_exists, tier_path, DERIVE_TIERS};
 
 pub(super) const MIN_TIER: u32 = 256;
+
+static ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn set_enabled(enabled: bool) {
+    ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+/// An animated cover to keep animated: the setting is on and the bytes animate.
+pub(super) fn keep_animated(bytes: &[u8]) -> bool {
+    ENABLED.load(Ordering::Relaxed) && is_animated_webp(bytes)
+}
 
 /// True for a WebP whose extended header (`VP8X`) has the animation flag set.
 pub(super) fn is_animated_webp(bytes: &[u8]) -> bool {

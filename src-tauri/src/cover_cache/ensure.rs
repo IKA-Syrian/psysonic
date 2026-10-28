@@ -417,7 +417,7 @@ impl CoverCacheState {
                 let _cpu_permit = cpu_permit;
                 // Fork patch: animated WebP covers keep their frames (fork_animated.rs).
                 let animated = match &source {
-                    CoverSource::Bytes(b) if fork_animated::is_animated_webp(b) => Some(b.clone()),
+                    CoverSource::Bytes(b) if fork_animated::keep_animated(b) => Some(b.clone()),
                     _ => None,
                 };
                 let img = match source {

@@ -12,6 +12,8 @@ import { SettingsGroup } from '@/features/settings/components/SettingsGroup';
 import { SettingsToggle } from '@/features/settings/components/SettingsToggle';
 import { SettingsSubCard, SettingsField, SettingsValue } from '@/features/settings/components/SettingsSubCard';
 import CoverCacheStrategySection from '@/features/settings/components/CoverCacheStrategySection';
+import { ForkOfflineSize } from '@/features/settings/components/ForkOfflineSize';
+import { ForkCacheLimitsSection } from '@/features/settings/components/ForkCacheLimitsSection';
 
 export function StorageTab() {
   const { t } = useTranslation();
@@ -102,6 +104,7 @@ export function StorageTab() {
                     <FolderOpen size={16} /> {t('settings.mediaDirChange')}
                   </button>
                 </div>
+                <ForkOfflineSize mediaDir={mediaDir} />
               </SettingsField>
             </SettingsSubCard>
           </SettingsGroup>
@@ -213,6 +216,8 @@ export function StorageTab() {
           </SettingsGroup>
         </div>
       </SettingsSubSection>
+
+      <ForkCacheLimitsSection />
     </>
   );
 }

@@ -10,7 +10,7 @@ mod ensure;
 mod external;
 mod external_ensure;
 mod fetch;
-mod fork_animated;
+pub(crate) mod fork_animated;
 #[cfg(test)]
 mod layout_tests;
 mod metrics;
