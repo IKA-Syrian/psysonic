@@ -1,4 +1,4 @@
-# Psysonic (ayhamo fork)
+# Psysonic (my own fork)
 
 This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small changes. The original README is [here](../README.md).
 
