@@ -98,7 +98,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: fork-v${{ needs.check.outputs.version }}
-          releaseName: Psysonic ${{ needs.check.outputs.version }} (song covers)
+          releaseName: Psysonic ${{ needs.check.outputs.version }} (my fork)
           releaseBody: |
             Psysonic ${{ needs.check.outputs.version }} with this fork's patches: the playing song shows its own cover, and updates come from this fork.
             Upstream commit: ${{ needs.check.outputs.upstream_sha }}

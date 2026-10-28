@@ -20,11 +20,11 @@ This is [Psysonic](https://github.com/Psychotoxical/psysonic) with a few small c
 
 ## How releases happen
 
-The **Fork sync and release** workflow runs every day. When upstream's `release` branch has a version this fork hasn't released, it merges that version into `covers` inside the runner (nothing is pushed), builds the Windows installer, signs it and publishes `fork-vX.Y.Z` with upstream's release notes added below the fork's own lines. The app then offers the update. It can also be run by hand with **force** to rebuild the current version.
+The **Fork sync and release** workflow runs every day. When upstream's `release` branch has a version this fork hasn't released, it merges that version into `main` inside the runner (nothing is pushed), builds the Windows installer, signs it and publishes `fork-vX.Y.Z` with upstream's release notes added below the fork's own lines. The app then offers the update. It can also be run by hand with **force** to rebuild the current version.
 
 ## If a run fails
 
-Usually upstream changed the same lines as a patch. If only version and lock files conflict (`package.json`, `Cargo.toml`, `tauri.conf.json`, `flake.lock`, ...), the fork never changes them: take upstream's side (`git checkout --theirs`). Merge `upstream/release` into `covers` locally, fix the conflict, push, then run the workflow by hand.
+Usually upstream changed the same lines as a patch. If only version and lock files conflict (`package.json`, `Cargo.toml`, `tauri.conf.json`, `flake.lock`, ...), the fork never changes them: take upstream's side (`git checkout --theirs`). Merge `upstream/release` into `main` locally, fix the conflict, push, then run the workflow by hand.
 
-- **Branch:** `covers` is the default branch, based on upstream `release` (stable versions only).
+- **Branch:** `main` is the default branch, based on upstream `release` (stable versions only). New work goes on its own branch and is merged into `main` when it is done.
 - **Signing key:** repo secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The public half is in `src-tauri/fork.conf.json`. If the key is lost, generate a new one, update both places and reinstall once by hand, because installed copies only accept updates signed with the old key.
