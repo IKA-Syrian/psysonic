@@ -1616,9 +1616,36 @@ export type FlatpakUpdateInfo = {
 	body: string,
 };
 
+/**
+ *  Which output backend the fork engine asks for. `Exclusive` (WASAPI, Windows only) falls back to
+ *  shared mode when the device refuses it.
+ */
+export type ForkBackend = "shared" | "exclusive";
+
+/**  Live state of an open WASAPI exclusive stream. */
+export type ForkExclusiveStatus = {
+	/**  Device sample format: `"S16"`, `"S24"`, `"S32"` or `"F32"`. */
+	format: string,
+	validBits: number,
+	rateHz: number,
+	/**  Render counters (saturate at `u32::MAX`). */
+	periods: number,
+	lateWakes: number,
+	maxGapUs: number,
+	timeouts: number,
+	lastError: string | null,
+	/**
+	 *  Result of the opt-in end-to-end bit-perfect check (`PSYSONIC_FORK_CRC_TAP=1`) for the newest track,
+	 *  e.g. `"match (48000 frames)"`; `None` when the check is off.
+	 */
+	bitPerfectCheck: string | null,
+};
+
 export type ForkHiResConfig = {
 	enabled: boolean,
 	policy: ForkPolicy,
+	/**  Missing in files written before the exclusive backend existed: loads as `Shared`. */
+	backend?: ForkBackend,
 	/**  `None` = 192 000 Hz. */
 	ceilingHz: number | null,
 	resyncSilenceMs: number,
@@ -1635,6 +1662,16 @@ export type ForkHiResStatus = {
 	mixRateHz: number,
 	/**  What the last `audio_play` through the fork engine announced; `None` before the first. */
 	lastFormat: ForkOutputFormat | null,
+	/**  Backend of the open stream (`Shared` when closed). The configured one is in the config. */
+	backend: ForkBackend,
+	/**  Present while an exclusive stream is open. */
+	exclusive: ForkExclusiveStatus | null,
+	/**  True while the open exclusive stream is delivering the samples unaltered. */
+	bitPerfect: boolean,
+	/**  Why the exclusive backend was last abandoned for shared mode, if it was. */
+	lastFallbackReason: string | null,
+	/**  The saved config (not the effective values above), so the UI can edit it without losing fields. */
+	config: ForkHiResConfig,
 };
 
 /**  Payload of the `fork:audio-output-format` event. */
@@ -1644,8 +1681,12 @@ export type ForkOutputFormat = {
 	/**  The track's native rate when it differs from the stream rate. */
 	resampledFromHz: number | null,
 	policy: ForkPolicy,
-	/**  Always `"shared"` for now. */
+	/**  `"shared"` or `"exclusive"`: the backend of the open stream. */
 	backend: string,
+	/**  Why exclusive mode was abandoned for shared, if it was. */
+	fallbackReason: string | null,
+	/**  The bit-perfect gate right now (always false in shared mode). */
+	bitPerfect: boolean,
 };
 
 /**  How the stream rate follows the queue. */

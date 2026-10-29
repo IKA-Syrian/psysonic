@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use rodio::Player;
 
 use super::state::{ChainedInfo, CurrentSourceDone, PreloadedTrack, StreamCompletedSpill};
+use crate::fork_output::OutputHandle; // Fork patch
 
 mod http;
 mod output_stream;
@@ -28,7 +29,7 @@ use output_stream::{open_stream_for_device_and_rate, probe_device_default_rate};
 mod linux_output_rate;
 
 /// Reply channel handed back to the audio-stream thread once an open finishes.
-pub type StreamOpenResult = Result<(Arc<rodio::MixerDeviceSink>, u32), String>;
+pub type StreamOpenResult = Result<(OutputHandle, u32), String>; // Fork patch: was Arc<rodio::MixerDeviceSink>
 pub type StreamOpenReply = std::sync::mpsc::SyncSender<StreamOpenResult>;
 
 /// Requests handled on the dedicated audio-stream thread (open / idle release).
@@ -46,7 +47,7 @@ pub enum StreamThreadMsg {
 }
 
 pub struct AudioEngine {
-    pub stream_handle: Arc<std::sync::Mutex<Option<Arc<rodio::MixerDeviceSink>>>>,
+    pub stream_handle: Arc<std::sync::Mutex<Option<OutputHandle>>>, // Fork patch: was Arc<rodio::MixerDeviceSink>
     /// Serializes release/open/state-commit as one output-stream transaction.
     pub(crate) stream_open_lock: Arc<Mutex<()>>,
     /// Players connected to the mixer but not yet registered in engine state.
@@ -303,7 +304,7 @@ pub fn create_engine() -> (AudioEngine, std::thread::JoinHandle<()>) {
             // Thread priority is kept at default during standard-mode playback.
             // It is escalated to Max only when a Hi-Res stream reopen is requested,
             // to prevent PipeWire underruns at high quantum sizes (8192 frames).
-            let mut _stream: Option<Arc<rodio::MixerDeviceSink>> = None;
+            let mut _stream: Option<OutputHandle> = None; // Fork patch
             ready_tx.send(()).ok();
 
             while let Ok(msg) = stream_thread_rx.recv() {

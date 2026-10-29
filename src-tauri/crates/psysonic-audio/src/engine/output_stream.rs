@@ -71,7 +71,7 @@ fn open_stream_with_verified_rate(
         )
         .open_stream()
         .map_err(|error| format!("failed to open audio output stream: {error}"))?;
-    Ok((finalize_mixer_device_sink(handle), actual_rate))
+    Ok((finalize_mixer_device_sink(handle).into(), actual_rate)) // Fork patch
 }
 
 #[cfg(target_os = "linux")]
@@ -129,6 +129,14 @@ pub(super) fn open_stream_for_device_and_rate(
 ) -> StreamOpenResult {
     #[cfg(not(target_os = "linux"))]
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+    // Fork patch: WASAPI exclusive backend (returns None unless enabled).
+    if let Some(h) = crate::fork_output::try_open_exclusive(device_name, desired_rate) {
+        let rate = h.config().sample_rate().get();
+        return Ok((h, rate));
+    }
+    // Fork patch: after a failed exclusive attempt the shared open wants the mix rate, not an exclusive-only rate.
+    let desired_rate = crate::fork_output::shared_fallback_rate(device_name, desired_rate);
 
     #[cfg(unix)]
     let _guard = unsafe {
@@ -241,7 +249,7 @@ pub(super) fn open_stream_for_device_and_rate(
             .and_then(|device| device.default_output_config().ok())
             .map(|config| config.sample_rate())
             .unwrap_or(44_100);
-        Ok((finalize_mixer_device_sink(handle), rate))
+        Ok((finalize_mixer_device_sink(handle).into(), rate)) // Fork patch
     }
 }
 
@@ -330,7 +338,8 @@ pub(crate) fn open_output_stream_blocking(
 
 fn ensure_output_stream_open_locked(
     engine: &AudioEngine,
-) -> Result<Arc<rodio::MixerDeviceSink>, String> {
+) -> Result<crate::fork_output::OutputHandle, String> {
+    // Fork patch
     if let Some(handle) = engine.stream_handle.lock().unwrap().clone() {
         return Ok(handle);
     }

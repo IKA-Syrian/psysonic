@@ -38,7 +38,16 @@ fn derive_transition_truth_table() {
 fn plan_is_none_when_disabled() {
     let cfg = ForkHiResConfig::default();
     assert_eq!(
-        plan_target_pure(&cfg, 48_000, 44_100, 96_000, Transition::Hard, true, &[]),
+        plan_target_pure(
+            &cfg,
+            48_000,
+            44_100,
+            96_000,
+            Transition::Hard,
+            true,
+            &[],
+            None
+        ),
         None
     );
 }
@@ -54,12 +63,22 @@ fn plan_follows_mix_rate_when_enabled() {
             96_000,
             Transition::Blend,
             true,
-            &[192_000]
+            &[192_000],
+            None
         ),
         Some(48_000)
     );
     assert_eq!(
-        plan_target_pure(&cfg, 48_000, 48_000, 44_100, Transition::Hard, false, &[]),
+        plan_target_pure(
+            &cfg,
+            48_000,
+            48_000,
+            44_100,
+            Transition::Hard,
+            false,
+            &[],
+            None
+        ),
         Some(48_000)
     );
 }
@@ -68,7 +87,7 @@ fn plan_follows_mix_rate_when_enabled() {
 fn zero_stream_rate_is_a_closed_stream() {
     let cfg = on();
     assert_eq!(
-        plan_target_pure(&cfg, 44_100, 0, 96_000, Transition::Blend, true, &[]),
+        plan_target_pure(&cfg, 44_100, 0, 96_000, Transition::Blend, true, &[], None),
         Some(44_100)
     );
 }
@@ -97,6 +116,7 @@ fn config_serde_uses_camel_case() {
     let cfg = ForkHiResConfig {
         enabled: true,
         policy: ForkPolicy::Adaptive,
+        backend: ForkBackend::Exclusive,
         ceiling_hz: Some(96_000),
         resync_silence_ms: 100,
         chunk_frames: 512,
@@ -106,6 +126,7 @@ fn config_serde_uses_camel_case() {
     assert_eq!(v["resyncSilenceMs"], 100);
     assert_eq!(v["chunkFrames"], 512);
     assert_eq!(v["policy"], "adaptive");
+    assert_eq!(v["backend"], "exclusive");
     assert_eq!(serde_json::from_value::<ForkHiResConfig>(v).unwrap(), cfg);
     let none = serde_json::to_value(ForkHiResConfig::default()).unwrap();
     assert!(none["ceilingHz"].is_null());
@@ -196,13 +217,13 @@ fn format_payload_marks_resampled_from_native() {
         ChannelCount::new(2).unwrap(),
         SampleRate::new(48_000).unwrap(),
     );
-    let p = format_payload(44_100, fmt, ForkPolicy::Seamless);
+    let p = format_payload(44_100, fmt, ForkPolicy::Seamless, OutputInfo::default());
     assert_eq!(
         (p.rate_hz, p.channels, p.resampled_from_hz),
         (48_000, 2, Some(44_100))
     );
     assert_eq!(
-        format_payload(48_000, fmt, ForkPolicy::Adaptive).resampled_from_hz,
+        format_payload(48_000, fmt, ForkPolicy::Adaptive, OutputInfo::default()).resampled_from_hz,
         None
     );
     let v = serde_json::to_value(&p).unwrap();
@@ -210,6 +231,224 @@ fn format_payload_marks_resampled_from_native() {
     assert_eq!(v["resampledFromHz"], 44_100);
     assert_eq!(v["policy"], "seamless");
     assert_eq!(v["backend"], "shared");
+    assert_eq!(v["bitPerfect"], false);
+    assert!(v["fallbackReason"].is_null());
+}
+
+#[test]
+fn format_payload_reports_the_exclusive_backend_and_gate() {
+    let fmt = (
+        ChannelCount::new(2).unwrap(),
+        SampleRate::new(96_000).unwrap(),
+    );
+    let info = |exclusive, bit_perfect| OutputInfo {
+        exclusive,
+        fallback_reason: Some("busy".into()),
+        bit_perfect,
+    };
+    let p = format_payload(96_000, fmt, ForkPolicy::Seamless, info(true, true));
+    assert_eq!((p.backend.as_str(), p.bit_perfect), ("exclusive", true));
+    assert_eq!(p.fallback_reason.as_deref(), Some("busy"));
+    // A shared stream is never bit-perfect, whatever the flag says.
+    let p = format_payload(96_000, fmt, ForkPolicy::Seamless, info(false, true));
+    assert_eq!((p.backend.as_str(), p.bit_perfect), ("shared", false));
+    let v = serde_json::to_value(&p).unwrap();
+    assert_eq!(v["fallbackReason"], "busy");
+}
+
+#[test]
+fn old_config_json_without_backend_loads_as_shared() {
+    let old = r#"{"enabled":true,"policy":"adaptive","ceilingHz":96000,"resyncSilenceMs":100,"chunkFrames":512}"#;
+    let cfg: ForkHiResConfig = serde_json::from_str(old).unwrap();
+    assert_eq!(cfg.backend, ForkBackend::Shared);
+    assert!(cfg.enabled);
+    // And through the file loader.
+    let dir = tmp("old");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("fork-hires.json");
+    std::fs::write(&file, old).unwrap();
+    assert_eq!(load_config_from(&file), cfg);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- exclusive planning ---------------------------------------------------------------------
+
+/// The Steam Streaming Speakers endpoint: 44.1 to 192 kHz in S24/S16.
+fn steam_caps() -> DeviceCaps {
+    DeviceCaps::new(vec![44_100, 48_000, 88_200, 96_000, 176_400, 192_000]).unwrap()
+}
+
+fn exclusive_cfg(policy: ForkPolicy) -> ForkHiResConfig {
+    ForkHiResConfig {
+        enabled: true,
+        policy,
+        backend: ForkBackend::Exclusive,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn exclusive_seamless_runs_at_the_ceiling() {
+    let caps = steam_caps();
+    let cfg = exclusive_cfg(ForkPolicy::Seamless);
+    let plan = |c: &ForkHiResConfig| {
+        plan_target_pure(
+            c,
+            48_000,
+            0,
+            44_100,
+            Transition::Hard,
+            true,
+            &[],
+            Some(&caps),
+        )
+    };
+    assert_eq!(plan(&cfg), Some(192_000));
+    // A lower user ceiling caps it.
+    let capped = ForkHiResConfig {
+        ceiling_hz: Some(96_000),
+        ..cfg
+    };
+    assert_eq!(plan(&capped), Some(96_000));
+}
+
+#[test]
+fn exclusive_native_follows_the_track_rate() {
+    let caps = steam_caps();
+    let cfg = exclusive_cfg(ForkPolicy::Seamless);
+    // No blends: the lowest supported rate at or above the track rate.
+    let plan = |track| {
+        plan_target_pure(
+            &cfg,
+            48_000,
+            0,
+            track,
+            Transition::Hard,
+            false,
+            &[],
+            Some(&caps),
+        )
+    };
+    assert_eq!(plan(44_100), Some(44_100));
+    assert_eq!(plan(96_000), Some(96_000));
+    assert_eq!(plan(32_000), Some(44_100));
+    assert_eq!(plan(384_000), Some(192_000));
+}
+
+#[test]
+fn without_exclusive_caps_the_plan_stays_on_the_mix_rate() {
+    let cfg = exclusive_cfg(ForkPolicy::Seamless);
+    assert_eq!(
+        plan_target_pure(&cfg, 48_000, 0, 96_000, Transition::Hard, false, &[], None),
+        Some(48_000)
+    );
+}
+
+// ---- gate inputs --------------------------------------------------------------------------
+
+fn unity() -> EngineGateValues {
+    EngineGateValues {
+        base_volume: 1.0,
+        player_volume: Some(crate::helpers::MASTER_HEADROOM),
+        replay_gain_linear: 1.0,
+        normalization_engine: 0,
+        eq_enabled: false,
+        speed_effect_active: false,
+        fading_out: false,
+        preview: false,
+        radio: false,
+        passthrough: true,
+    }
+}
+
+#[test]
+fn gate_inputs_all_unity_is_bit_perfect() {
+    use psysonic_fork_hires::exclusive::gate::bit_perfect;
+    let i = gate_inputs_from(&unity());
+    assert!(bit_perfect(&i));
+    assert!(i.volume_is_unity && i.normalization_off && i.eq_off);
+    assert!(i.speed_is_unity && i.no_blend_or_extra_players && i.rate_matches);
+}
+
+#[test]
+fn gate_inputs_each_engine_value_breaks_exactly_its_input() {
+    type Case = (
+        &'static str,
+        fn(&mut EngineGateValues),
+        fn(&GateInputs) -> bool,
+    );
+    let cases: [Case; 12] = [
+        (
+            "base volume",
+            |v| v.base_volume = 0.8,
+            |i| i.volume_is_unity,
+        ),
+        (
+            "player volume",
+            |v| v.player_volume = Some(0.5),
+            |i| i.volume_is_unity,
+        ),
+        (
+            "player gain above headroom",
+            |v| v.player_volume = Some(1.0),
+            |i| i.volume_is_unity,
+        ),
+        (
+            "no player",
+            |v| v.player_volume = None,
+            |i| i.volume_is_unity,
+        ),
+        (
+            "replay gain",
+            |v| v.replay_gain_linear = 0.9,
+            |i| i.normalization_off,
+        ),
+        (
+            "normalization engine",
+            |v| v.normalization_engine = 1,
+            |i| i.normalization_off,
+        ),
+        ("eq", |v| v.eq_enabled = true, |i| i.eq_off),
+        (
+            "speed",
+            |v| v.speed_effect_active = true,
+            |i| i.speed_is_unity,
+        ),
+        (
+            "fading out",
+            |v| v.fading_out = true,
+            |i| i.no_blend_or_extra_players,
+        ),
+        (
+            "preview",
+            |v| v.preview = true,
+            |i| i.no_blend_or_extra_players,
+        ),
+        ("radio", |v| v.radio = true, |i| i.no_blend_or_extra_players),
+        ("resampling", |v| v.passthrough = false, |i| i.rate_matches),
+    ];
+    for (name, change, input) in cases {
+        let mut v = unity();
+        change(&mut v);
+        let i = gate_inputs_from(&v);
+        assert!(!input(&i), "{name}: its own input must be off");
+        assert!(
+            !psysonic_fork_hires::exclusive::gate::bit_perfect(&i),
+            "{name}: the gate must be off"
+        );
+    }
+}
+
+#[test]
+fn engine_gate_inputs_reads_a_minimal_engine() {
+    let engine = minimal_engine();
+    let i = engine_gate_inputs(&engine).expect("uncontended");
+    // No player yet, so the volume is not unity; the rest is at rest.
+    assert!(!i.volume_is_unity);
+    assert!(i.normalization_off && i.eq_off && i.speed_is_unity && i.no_blend_or_extra_players);
+    // A contended lock reads as unknown.
+    let _held = engine.current.lock().unwrap();
+    assert_eq!(engine_gate_inputs(&engine), None);
 }
 
 #[test]

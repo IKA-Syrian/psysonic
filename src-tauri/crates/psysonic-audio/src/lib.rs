@@ -21,6 +21,7 @@ mod device_resume;
 mod device_watcher;
 mod engine;
 pub mod fork_hires; // Fork patch
+mod fork_output; // Fork patch
 mod helpers;
 mod hi_res_blend;
 mod ipc;
