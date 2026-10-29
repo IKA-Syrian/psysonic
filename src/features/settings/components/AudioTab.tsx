@@ -15,10 +15,13 @@ import { PlaybackRateBlock } from '@/features/settings/components/audio/Playback
 import { TrackTransitionsBlock } from '@/features/settings/components/audio/TrackTransitionsBlock';
 import { TrackPreviewsSection } from '@/features/settings/components/audio/TrackPreviewsSection';
 import { HiResCrossfadeResampleBlock } from '@/features/settings/components/audio/HiResCrossfadeResampleBlock';
+import { ForkHiResEngineSection } from '@/features/settings/components/ForkHiResEngineSection'; // Fork patch
+import { useForkHiResEnabled } from '@/features/settings/components/forkHiResEngineStore'; // Fork patch
 
 export function AudioTab() {
   const { t } = useTranslation();
   const auth = useAuthStore();
+  const forkHiResOn = useForkHiResEnabled(s => s.enabled); // Fork patch
   const {
     audioDevices,
     osDefaultAudioDeviceId,
@@ -89,7 +92,7 @@ export function AudioTab() {
               onChange={auth.setEnableHiRes}
             />
             <HiResCrossfadeResampleBlock
-              enabled={auth.enableHiRes}
+              enabled={auth.enableHiRes && !forkHiResOn /* Fork patch */}
               resampleHz={auth.hiResCrossfadeResampleHz}
               onResampleHzChange={auth.setHiResCrossfadeResampleHz}
               t={t}
@@ -97,6 +100,8 @@ export function AudioTab() {
           </SettingsGroup>
         </div>
       </SettingsSubSection>
+
+      <ForkHiResEngineSection /> {/* Fork patch */}
 
       {/* Equalizer */}
       <SettingsSubSection

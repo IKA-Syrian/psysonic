@@ -14,6 +14,7 @@ import { usePlayerStore } from '@/features/playback';
 import ExplicitBadge from '@/ui/ExplicitBadge';
 import ExplicitCoverVeil from '@/ui/ExplicitCoverVeil';
 import { isExplicit } from '@/lib/media/explicitStatus';
+import { ForkOutputFormatBadge } from '@/features/nowPlaying/components/ForkOutputFormatBadge'; // Fork patch
 
 interface HeroProps {
   track: { title: string; artist: string; album: string; year?: number;
@@ -142,6 +143,7 @@ const Hero = memo(function Hero({ track, artistRefs, genre, playCount, userRatin
           {(fmt.bitRate ?? 0) > 0 && <span className="np-badge">{fmt.bitRateIsCap ? '≤' : ''}{fmt.bitRate} kbps</span>}
           {(fmt.sampleRate ?? 0) > 0 && <span className="np-badge">{((fmt.sampleRate ?? 0) / 1000).toFixed(1)} kHz</span>}
           {(fmt.bitDepth ?? 0) > 0 && <span className="np-badge">{fmt.bitDepth}-bit</span>}
+          <ForkOutputFormatBadge /> {/* Fork patch */}
           {hiRes && <span className="np-badge np-badge-hires">Hi-Res</span>}
           {track.duration > 0 && <span className="np-badge">{formatTrackTime(track.duration)}</span>}
         </div>
