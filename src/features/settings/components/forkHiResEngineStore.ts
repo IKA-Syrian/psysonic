@@ -16,7 +16,7 @@ export async function loadForkHiResStatus(): Promise<ForkHiResStatus | null> {
   if (!isTauri()) return null;
   try {
     const status = await commands.forkHiresStatus();
-    useForkHiResEnabled.getState().setEnabled(status.enabled);
+    useForkHiResEnabled.getState().setEnabled(status.config.enabled);
     return status;
   } catch {
     return null;

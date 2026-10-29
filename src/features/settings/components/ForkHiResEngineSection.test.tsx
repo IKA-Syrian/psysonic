@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { isTauri } from '@tauri-apps/api/core';
 import { renderWithProviders } from '@/test/helpers/renderWithProviders';
@@ -7,15 +7,33 @@ import { onInvoke, invokeMock } from '@/test/mocks/tauri';
 import { ForkHiResEngineSection } from './ForkHiResEngineSection';
 import { useForkHiResEnabled, loadForkHiResStatus } from './forkHiResEngineStore';
 
-const status = (over: Record<string, unknown> = {}) => ({
-  enabled: true,
-  policy: 'seamless',
-  ceilingHz: 192000,
-  streamRateHz: 192000,
-  mixRateHz: 192000,
-  lastFormat: null,
-  ...over,
-});
+const status = (over: Record<string, unknown> = {}) => {
+  const base = {
+    enabled: true,
+    policy: 'seamless',
+    ceilingHz: 192000,
+    streamRateHz: 192000,
+    mixRateHz: 192000,
+    lastFormat: null,
+    backend: 'shared',
+    exclusive: null,
+    bitPerfect: false,
+    lastFallbackReason: null,
+    ...over,
+  };
+  // The saved config defaults to what the other fields imply, like a stream that matches the setting.
+  return {
+    config: {
+      enabled: base.enabled,
+      policy: base.policy,
+      backend: base.backend ?? 'shared',
+      ceilingHz: base.ceilingHz === 192000 ? null : base.ceilingHz,
+      resyncSilenceMs: 250,
+      chunkFrames: 1024,
+    },
+    ...base,
+  };
+};
 
 const setConfigCalls = () => invokeMock.mock.calls.filter(c => c[0] === 'fork_hires_set_config');
 const lastConfig = () => setConfigCalls().slice(-1)[0]?.[1]?.config;
@@ -55,7 +73,7 @@ describe('ForkHiResEngineSection', () => {
 
     await waitFor(() => expect(setConfigCalls()).toHaveLength(1));
     expect(lastConfig()).toEqual({
-      enabled: true, policy: 'seamless', ceilingHz: null, resyncSilenceMs: 250, chunkFrames: 1024,
+      enabled: true, policy: 'seamless', backend: 'shared', ceilingHz: null, resyncSilenceMs: 250, chunkFrames: 1024,
     });
     expect(useForkHiResEnabled.getState().enabled).toBe(true);
   });
@@ -104,6 +122,123 @@ describe('ForkHiResEngineSection', () => {
     renderWithProviders(<ForkHiResEngineSection />);
     expect(screen.getByRole('button', { name: 'Adaptive' })).toBeDisabled();
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+const EXCL = /^Exclusive \(bit-perfect/;
+const exclusiveStatus = (over: Record<string, unknown> = {}) => status({
+  backend: 'exclusive',
+  bitPerfect: true,
+  exclusive: { format: 'S24', validBits: 24, rateHz: 96000, periods: 120, lateWakes: 2, maxGapUs: 3500, timeouts: 1, lastError: null, bitPerfectCheck: null },
+  ...over,
+});
+const statusCalls = () => invokeMock.mock.calls.filter(c => c[0] === 'fork_hires_status').length;
+
+describe('ForkHiResEngineSection exclusive backend', () => {
+  it('reads backend from status and sends it with the full config', async () => {
+    onInvoke('fork_hires_status', () => exclusiveStatus());
+    renderWithProviders(<ForkHiResEngineSection />);
+    const excl = await screen.findByRole('button', { name: EXCL });
+    await waitFor(() => expect(excl).toHaveClass('btn-primary'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Shared (Windows mixer)' }));
+    await waitFor(() => expect(lastConfig()).toEqual({
+      enabled: true, policy: 'seamless', backend: 'shared', ceilingHz: null, resyncSilenceMs: 250, chunkFrames: 1024,
+    }));
+    await userEvent.click(screen.getByRole('button', { name: 'Adaptive' }));
+    await waitFor(() => expect(lastConfig()).toMatchObject({ policy: 'adaptive', backend: 'shared' }));
+  });
+
+  it('keeps the saved exclusive config and hidden fields when no stream is open', async () => {
+    const saved = { enabled: true, policy: 'seamless', backend: 'exclusive', ceilingHz: null, resyncSilenceMs: 400, chunkFrames: 2048 };
+    onInvoke('fork_hires_status', () => status({ backend: 'shared', streamRateHz: null, config: saved }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    const excl = await screen.findByRole('button', { name: EXCL });
+    await waitFor(() => expect(excl).toHaveClass('btn-primary'));
+    expect(screen.getByRole('button', { name: 'Shared (Windows mixer)' })).not.toHaveClass('btn-primary');
+    expect(screen.getByText('Exclusive selected; applies from the next track')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Adaptive' }));
+    await waitFor(() => expect(lastConfig()).toEqual({ ...saved, policy: 'adaptive' }));
+  });
+
+  it('treats a status without a backend as shared', async () => {
+    onInvoke('fork_hires_status', () => status({ backend: undefined }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Enable hi-res mix engine' })).toBeChecked());
+    expect(screen.getByRole('button', { name: 'Shared (Windows mixer)' })).toHaveClass('btn-primary');
+  });
+
+  it('shows the exclusive notice only for exclusive', async () => {
+    onInvoke('fork_hires_status', () => status());
+    renderWithProviders(<ForkHiResEngineSection />);
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Enable hi-res mix engine' })).toBeChecked());
+    const notice = /other apps can't use this device/;
+    expect(screen.queryByText(notice)).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: EXCL }));
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    expect(lastConfig()).toMatchObject({ backend: 'exclusive' });
+  });
+
+  it('renders the live exclusive status', async () => {
+    onInvoke('fork_hires_status', () => exclusiveStatus());
+    renderWithProviders(<ForkHiResEngineSection />);
+    expect(await screen.findByText('In use: Exclusive')).toBeInTheDocument();
+    expect(screen.getByText('Format: S24 · 24-bit · 96000 Hz')).toBeInTheDocument();
+    expect(screen.getByText('Bit-perfect: yes')).toBeInTheDocument();
+    expect(screen.getByText('periods 120 · late wakes 2 · max gap 3.5 ms · timeouts 1')).toBeInTheDocument();
+  });
+
+  it('appends the bit-perfect check result to the diagnostics line when present', async () => {
+    onInvoke('fork_hires_status', () => exclusiveStatus({
+      exclusive: { format: 'S24', validBits: 24, rateHz: 96000, periods: 120, lateWakes: 2, maxGapUs: 3500, timeouts: 1, lastError: null, bitPerfectCheck: 'match (48000 frames)' },
+    }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    expect(await screen.findByText('periods 120 · late wakes 2 · max gap 3.5 ms · timeouts 1 · check: match (48000 frames)')).toBeInTheDocument();
+  });
+
+  it('shows bit-perfect as no when the gate is off', async () => {
+    onInvoke('fork_hires_status', () => exclusiveStatus({ bitPerfect: false }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    expect(await screen.findByText('Bit-perfect: no')).toBeInTheDocument();
+  });
+
+  it('shows the fallback message when a reason is set', async () => {
+    onInvoke('fork_hires_status', () => status({ lastFallbackReason: 'device busy' }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    expect(await screen.findByText('Exclusive mode unavailable on this device: device busy. Using shared mode.')).toBeInTheDocument();
+  });
+
+  it('warns about the mix rate only for the shared backend', async () => {
+    onInvoke('fork_hires_status', () => exclusiveStatus({ mixRateHz: 48000 }));
+    const first = renderWithProviders(<ForkHiResEngineSection />);
+    await screen.findByText('In use: Exclusive');
+    expect(screen.queryByText(/Windows is mixing at/)).toBeNull();
+    first.unmount();
+
+    onInvoke('fork_hires_status', () => status({ mixRateHz: 48000 }));
+    renderWithProviders(<ForkHiResEngineSection />);
+    expect(await screen.findByText(/or switch Output to Exclusive\.$/)).toBeInTheDocument();
+  });
+
+  describe('polling', () => {
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('polls status every second and stops on unmount', async () => {
+      onInvoke('fork_hires_status', () => status());
+      const { unmount } = renderWithProviders(<ForkHiResEngineSection />);
+      await act(async () => {});
+      const base = statusCalls();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+      expect(statusCalls()).toBe(base + 3);
+
+      unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+      expect(statusCalls()).toBe(base + 3);
+    });
   });
 });
 
