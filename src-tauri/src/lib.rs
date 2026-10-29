@@ -115,6 +115,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             crate::fork_startup::fork_set_cache_limits,
             crate::fork_startup::fork_webview_cache_size,
             crate::fork_startup::fork_clear_webview_cache,
+            // Fork patch: hi-res engine glue
+            crate::audio::fork_hires::fork_hires_set_config,
+            crate::audio::fork_hires::fork_hires_set_queue_rates,
+            crate::audio::fork_hires::fork_hires_status,
             psysonic_library::browse_support::library_get_catalog_year_bounds,
             psysonic_library::browse_support::library_get_genre_album_counts,
             psysonic_library::browse_support::library_get_mood_album_counts,
@@ -594,6 +598,10 @@ pub fn run() {
             fork_startup::fork_set_cache_limits,
             fork_startup::fork_webview_cache_size,
             fork_startup::fork_clear_webview_cache,
+            // Fork patch: hi-res engine glue
+            audio::fork_hires::fork_hires_set_config,
+            audio::fork_hires::fork_hires_set_queue_rates,
+            audio::fork_hires::fork_hires_status,
             theme_import::import_theme_zip,
             desktop_palette::read_desktop_palette,
             backup_export_library_db,

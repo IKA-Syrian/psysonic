@@ -29,6 +29,9 @@ fn settings_file(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// Runs first in `setup`, before the cover cache is opened.
 pub(crate) fn run(app: &tauri::AppHandle) {
     remove_old_update_installers();
+    if let Some(f) = crate::audio::fork_hires::config_file(app) {
+        crate::audio::fork_hires::apply_config(crate::audio::fork_hires::load_config_from(&f));
+    }
     let saved = settings_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());

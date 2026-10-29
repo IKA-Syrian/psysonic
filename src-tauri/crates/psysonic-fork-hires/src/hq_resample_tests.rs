@@ -11,11 +11,11 @@ use rodio::queue::SourcesQueueInput;
 use rodio::{Player, Source};
 
 use crate::hq_resample::{
-    for_output, prime_queue, priming_silence, HqResample, DEFAULT_CHUNK_FRAMES,
+    for_output, prime_queue, primed_for_output, priming_silence, HqResample, DEFAULT_CHUNK_FRAMES,
 };
 use crate::testkit::metrics::{analyze_tone, level_db};
 use crate::testkit::signal::{first_mismatch, interleave, quantize, sine};
-use crate::testkit::source::Spans;
+use crate::testkit::source::{Spans, Unbounded};
 
 const UP: [(u32, u32); 9] = [
     (44_100, 48_000),
@@ -670,4 +670,203 @@ fn first_track_after_connect_is_damaged_without_priming_and_exact_with_it() {
         );
         assert_eq!(shift % 2, 0);
     }
+}
+
+// ---- PrimedSource: seek safety and the connect-to-append gap ----
+
+/// How the first track is put into a new `Player`.
+#[derive(Clone, Copy, Debug)]
+enum Priming {
+    /// A separate `priming_silence` source, then the track (the hazardous layout).
+    Separate,
+    /// One `PrimedSource` (`primed_for_output`).
+    Part,
+}
+
+fn append_first(player: &Player, t: &Track, priming: Priming) {
+    let src = SamplesBuffer::new(ch(t.channels), hz(t.rate), t.data.clone());
+    match priming {
+        Priming::Separate => {
+            player.append(priming_silence(ch(2), hz(OUT)));
+            player.append(for_output(src, ch(2), hz(OUT)));
+        }
+        Priming::Part => player.append(primed_for_output(src, ch(2), hz(OUT))),
+    }
+}
+
+/// About 1 s in, at a quarter period of the 1 kHz test tone: seeking to a whole second would land on the same
+/// phase as the start of the track and could not tell a swallowed seek from a honoured one.
+const SEEK_POS: Duration = Duration::from_micros(1_000_250);
+
+/// The track at the stream format, seeked to `pos` first (what a seek must produce).
+fn alone_from(t: &Track, pos: Duration) -> Vec<f32> {
+    let src = SamplesBuffer::new(ch(t.channels), hz(t.rate), t.data.clone());
+    let mut s = for_output(src, ch(2), hz(OUT));
+    s.try_seek(pos).expect("SamplesBuffer is seekable");
+    s.map(|x| x + 0.0).collect()
+}
+
+/// Paused Player, first track appended, seek issued, then `play()`. Returns `(start, mismatch, len)`: where the
+/// first non-silent output sample is, the first sample that differs from the expected seeked track (if any), and
+/// the expected length.
+fn paused_seek(priming: Priming, pos: Duration) -> (usize, Option<usize>, usize) {
+    let t = track(2, 44_100, 2.0, 1000);
+    let expected = alone_from(&t, pos);
+    let (controller, mut output) = mixer(ch(2), hz(OUT));
+    let player = Player::connect_new(&controller);
+    player.pause();
+    append_first(&player, &t, priming);
+    // `Player::try_seek` blocks until a pulled source applies it, so issue it from another thread (as the app
+    // does) and let the paused mixer pull silence until it is applied (rodio checks every 5 ms of queue samples). The track is not consumed meanwhile.
+    let player = std::sync::Arc::new(player);
+    let seeker = {
+        let player = player.clone();
+        std::thread::spawn(move || player.try_seek(pos).expect("seek on a paused player"))
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let paused: Vec<f32> = output.by_ref().take(60_000).collect();
+    assert!(paused.iter().all(|&s| s == 0.0));
+    seeker.join().expect("seek thread");
+    player.play();
+    let got: Vec<f32> = output.by_ref().take(expected.len() + 20_000).collect();
+    let start = first_nonzero(&got, 0);
+    let end = (start + expected.len()).min(got.len());
+    (
+        start,
+        first_mismatch(&expected, &got[start..end]),
+        expected.len(),
+    )
+}
+
+/// The hazard: with a separate priming source, a seek on a paused Player is consumed by the silence and the
+/// track starts from 0, not from the seek position.
+#[test]
+fn separate_priming_swallows_a_seek_on_a_paused_player() {
+    let (start, mismatch, len) = paused_seek(Priming::Separate, SEEK_POS);
+    eprintln!("separate priming: first sound at {start}, first mismatch {mismatch:?} of {len}");
+    assert!(
+        mismatch.is_some(),
+        "if this passes, rodio no longer lets priming swallow the seek and PrimedSource is optional"
+    );
+}
+
+#[test]
+fn primed_source_honours_a_seek_on_a_paused_player() {
+    for pos in [SEEK_POS, Duration::ZERO] {
+        let (start, mismatch, _) = paused_seek(Priming::Part, pos);
+        assert_eq!(start % 2, 0);
+        assert_eq!(mismatch, None, "seek to {pos:?}");
+    }
+}
+
+/// Locates the track in `got` by a clean middle window and counts wrong samples over the whole track.
+/// Returns `(shift, wrong)`, shift being the output index minus the track index.
+fn locate_and_count(got: &[f32], ea: &[f32], max_shift: usize) -> (i64, usize) {
+    let shift = (0..max_shift)
+        .step_by(2)
+        .find(|&s| got[s + 20_000..s + 24_000] == ea[20_000..24_000])
+        .expect("track not found in the output") as i64;
+    let wrong = (0..ea.len())
+        .filter(|&i| got[(i as i64 + shift) as usize].to_bits() != ea[i].to_bits())
+        .count();
+    (shift, wrong)
+}
+
+/// R12 case: connect, append at once (before the mixer pulls anything); the first track is bit-exact.
+#[test]
+fn primed_source_first_track_is_exact_on_immediate_append() {
+    let (shift, wrong) = connect_gap(0, Priming::Part);
+    assert_eq!(shift % 2, 0);
+    assert_eq!(
+        wrong, 0,
+        "first track must be bit-exact from its first sample"
+    );
+}
+
+/// Connect, let the mixer pull `pre_pull_samples` (the engine takes 100 ms or more between connect and append),
+/// then append the first track. Returns `(shift, wrong)` for the track.
+fn connect_gap(pre_pull_samples: usize, priming: Priming) -> (i64, usize) {
+    let a = track(2, 44_100, 1.0, 1000);
+    let ea = alone(&a);
+    let (controller, mut output) = mixer(ch(2), hz(OUT));
+    let player = Player::connect_new(&controller);
+    let mut got: Vec<f32> = output.by_ref().take(pre_pull_samples).collect();
+    append_first(&player, &a, priming);
+    got.extend(output.by_ref().take(ea.len() + 40_000));
+    assert!(got[..pre_pull_samples].iter().all(|&s| s == 0.0));
+    locate_and_count(&got, &ea, pre_pull_samples + 16_384)
+}
+
+#[test]
+fn connect_to_append_gap_result() {
+    let pre = 2 * OUT as usize / 5; // 200 ms of stereo samples
+    for priming in [Priming::Part, Priming::Separate] {
+        let (shift, wrong) = connect_gap(pre, priming);
+        eprintln!("gap 200 ms {priming:?}: shift {shift} (pre-pull {pre}), {wrong} wrong samples");
+        assert_eq!(wrong, 0, "{priming:?}");
+    }
+}
+
+/// A gapless second track via plain `for_output` after a `PrimedSource` first track is sample-exact.
+#[test]
+fn gapless_second_track_after_primed_first_is_exact() {
+    for ((c1, r1), (c2, r2)) in CASES {
+        let a = track(c1, r1, 1.0, 1000);
+        let b = track(c2, r2, 1.0, 1500);
+        let (ea, eb) = (alone(&a), alone(&b));
+        let (controller, mut output) = mixer(ch(2), hz(OUT));
+        let player = Player::connect_new(&controller);
+        append_first(&player, &a, Priming::Part);
+        let src_b = SamplesBuffer::new(ch(c2), hz(r2), b.data.clone());
+        player.append(for_output(src_b, ch(2), hz(OUT)));
+        let got: Vec<f32> = output.by_ref().take(ea.len() + eb.len() + EXTRA).collect();
+        let start = first_nonzero(&got, 0);
+        let expected: Vec<f32> = ea.iter().chain(&eb).copied().collect();
+        assert_eq!(
+            first_mismatch(&expected, &got[start..start + expected.len()]),
+            None,
+            "{c1}ch->{c2}ch"
+        );
+        assert!(got[start + expected.len()..].iter().all(|&s| s == 0.0));
+    }
+}
+
+// ---- Streaming-style source: unbounded spans ----
+
+#[test]
+fn unbounded_spans_give_the_same_output_as_spans() {
+    for &(from, to) in &[
+        (44_100, 192_000),
+        (44_100, 48_000),
+        (192_000, 44_100),
+        (96_000, 96_000),
+    ] {
+        let input = sine(1000, from, 1.5, 0.5);
+        let spans = hq_spans(&input, from, to, 1152);
+        let unbounded: Vec<f32> =
+            HqResample::new(Unbounded::new(&input, from), hz(to), DEFAULT_CHUNK_FRAMES).collect();
+        assert_eq!(first_mismatch(&spans, &unbounded), None, "{from}->{to}");
+        assert_eq!(unbounded.len(), expected_len(input.len(), from, to));
+        let wrapped: Vec<f32> = for_output(Unbounded::new(&input, from), ch(1), hz(to)).collect();
+        assert_eq!(
+            first_mismatch(&spans, &wrapped),
+            None,
+            "{from}->{to} for_output"
+        );
+        assert_eq!(wrapped.len(), unbounded.len());
+    }
+    // Stereo through for_output, against a bounded-span source.
+    let l = sine(1000, 44_100, 0.5, 0.5);
+    let r = sine(1300, 44_100, 0.5, 0.5);
+    let input = interleave(&[&l, &r]);
+    let a: Vec<f32> =
+        for_output(Unbounded::with_channels(&input, 44_100, 2), ch(2), hz(OUT)).collect();
+    let b: Vec<f32> = for_output(
+        SamplesBuffer::new(ch(2), hz(44_100), input.clone()),
+        ch(2),
+        hz(OUT),
+    )
+    .collect();
+    assert_eq!(first_mismatch(&a, &b), None);
+    assert_eq!(a.len(), 2 * expected_len(l.len(), 44_100, OUT));
 }

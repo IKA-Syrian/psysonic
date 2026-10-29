@@ -116,6 +116,10 @@ pub async fn audio_play(
         return Err("cold resume position must be finite".to_string());
     }
     let gapless = state.gapless_enabled.load(Ordering::Relaxed);
+    // Fork patch: the fork engine owns the stream rate, so the legacy hi-res path is off.
+    let hi_res_enabled = hi_res_enabled && !crate::fork_hires::enabled();
+    // Fork patch: fork streams keep the hi-res stream protection (thread priority, settle).
+    let fork_hi_res_stream = hi_res_enabled || crate::fork_hires::enabled();
 
     // ── Ghost-command guard ───────────────────────────────────────────────────
     // After a gapless auto-advance, the frontend may fire a stale playTrack()
@@ -481,6 +485,10 @@ pub async fn audio_play(
         } else {
             state.device_default_rate // restore device default
         };
+        // Fork patch: the fork engine's planned stream rate (no-op when disabled).
+        let target_rate =
+            crate::fork_hires::plan_target(&state, output_rate, crossfade_enabled, gapless, manual)
+                .unwrap_or(target_rate);
         let needs_switch =
             super::engine::stream_rate_needs_switch(target_rate, current_requested_rate);
         if needs_switch {
@@ -488,13 +496,14 @@ pub async fn audio_play(
             match super::engine::open_output_stream_blocking(
                 &state,
                 target_rate,
-                hi_res_enabled,
+                fork_hi_res_stream, // Fork patch
                 dev,
             ) {
                 Ok(_) => {
                     // Give PipeWire time to reconfigure at the new rate before
                     // we open a Sink — only needed for large hi-res quanta.
-                    if hi_res_enabled && target_rate > 48_000 {
+                    // Fork patch: `fork_hi_res_stream` also covers fork streams.
+                    if fork_hi_res_stream && target_rate > 48_000 {
                         tokio::time::sleep(Duration::from_millis(150)).await;
                     }
                 }
@@ -541,8 +550,9 @@ pub async fn audio_play(
     // Preserve-pitch phase vocoder runs on a worker thread; pre-fill gives the
     // ring buffer time to build headroom before the cpal callback drains it.
     let needs_preserve_prefill = preserve_pitch_will_run(&state.playback_rate);
-    let needs_prefill =
-        (hi_res_enabled && blend_rate.unwrap_or(output_rate) > 48_000) || needs_preserve_prefill;
+    let needs_prefill = (hi_res_enabled && blend_rate.unwrap_or(output_rate) > 48_000)
+        || needs_preserve_prefill
+        || crate::fork_hires::high_rate_stream(&state); // Fork patch
     let defer_playback_start = !state.stream_playback_armed.load(Ordering::Relaxed);
     if needs_prefill || defer_playback_start || start_paused {
         sink.pause();
@@ -558,6 +568,8 @@ pub async fn audio_play(
     // The half-frame leak shifts the next source's L/R parity in the device
     // stream and can manifest as a dead channel for the rest of the track
     // (reported by users for natural-end-without-gapless transitions only).
+    // Fork patch: stream format when the fork engine queues this track (None = upstream path).
+    let fork_fmt = crate::fork_hires::stream_format(&state);
     if !gapless {
         let cur_pos = {
             let cur = state.current.lock().unwrap();
@@ -569,8 +581,8 @@ pub async fn audio_play(
         };
         let is_auto_advance = cur_dur > 3.0 && cur_pos >= cur_dur - 3.0;
         if is_auto_advance {
-            let ch = source.channels();
-            let sr = source.sample_rate();
+            // Fork patch: uniform queue
+            let (ch, sr) = fork_fmt.unwrap_or((source.channels(), source.sample_rate()));
             // 500 ms in whole frames, then expand to interleaved samples.
             let frames = (sr.get() / 2) as usize;
             let total_samples = frames.saturating_mul(ch.get() as usize);
@@ -636,7 +648,11 @@ pub async fn audio_play(
         false
     };
 
-    if gapless {
+    if let Some(fmt) = fork_fmt {
+        // Fork patch: first track through the HQ resampler at the stream format.
+        crate::fork_hires::announce(&app, output_rate, fmt);
+        sink.append(crate::fork_hires::first_source(source, fmt));
+    } else if gapless {
         let config = state
             .stream_handle
             .lock()
@@ -950,6 +966,8 @@ pub async fn audio_chain_preload(
     // Use a dedicated counter for the chained source — it will be swapped into
     // samples_played when the chained track becomes active.
     let chain_counter = Arc::new(AtomicU64::new(0));
+    // Fork patch: the fork engine owns the stream rate, so the legacy blend path is off.
+    let hi_res_enabled = hi_res_enabled && !crate::fork_hires::enabled();
     // Always 0 unless hi-res gapless blend resampling is active.
     let blend_rate =
         hi_res_blend::blend_rate_hz(hi_res_enabled, hi_res_enabled, hi_res_crossfade_resample_hz);
@@ -1096,11 +1114,16 @@ pub async fn audio_chain_preload(
         let cur = state.current.lock().unwrap();
         match &cur.sink {
             Some(sink) => {
-                sink.append(gapless_output_source(
-                    source,
-                    config.channel_count(),
-                    config.sample_rate(),
-                ));
+                if let Some(fmt) = crate::fork_hires::stream_format(&state) {
+                    // Fork patch: chained track through the HQ resampler at the stream format.
+                    sink.append(crate::fork_hires::chained_source(source, fmt));
+                } else {
+                    sink.append(gapless_output_source(
+                        source,
+                        config.channel_count(),
+                        config.sample_rate(),
+                    ));
+                }
             }
             None => return Ok(()), // playback stopped — bail
         }

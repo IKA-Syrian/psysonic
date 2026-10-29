@@ -4452,6 +4452,7 @@ dependencies = [
  "pitch_shift",
  "psysonic-analysis",
  "psysonic-core",
+ "psysonic-fork-hires",
  "reqwest",
  "ringbuf",
  "rodio",

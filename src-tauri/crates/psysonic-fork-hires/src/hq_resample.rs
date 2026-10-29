@@ -304,7 +304,8 @@ impl<S: Source> Source for HqResample<S> {
 /// here makes every queued source report exactly `channels` / `rate` (up- or down-mixing the track's own
 /// channels inside the wrapper, at the track's own span boundaries), so the stale metadata is always right.
 ///
-/// Use together with [`prime_queue`] / [`priming_silence`] for the first source of a queue.
+/// For the first track appended to a new queue use [`primed_for_output`]; chained (gapless) tracks use this
+/// function without priming.
 pub fn for_output<S: Source>(
     source: S,
     channels: ChannelCount,
@@ -336,4 +337,102 @@ pub fn prime_queue(
     rate: SampleRate,
 ) {
     input.append(priming_silence(channels, rate));
+}
+
+/// Number of priming samples for a stream format: [`priming_silence`]'s 512, rounded up to a whole frame.
+fn priming_samples(channels: ChannelCount) -> usize {
+    let ch = channels.get() as usize;
+    512usize.div_ceil(ch) * ch
+}
+
+/// A source that emits the priming silence itself and then delegates to `S`, as one queue entry.
+///
+/// Why not a separate [`priming_silence`] source ahead of the track: rodio 0.22.2's `Player` applies a pending
+/// `try_seek` in the `periodic_access` of whichever source is *current*. With a separate priming source in
+/// front, a seek issued on a paused or just-created player (session restore, seek while paused) is consumed by
+/// the silence, whose `try_seek` succeeds, and the track then starts from 0. Here the silence and the track are
+/// one source, so the seek always reaches the track.
+///
+/// - Emits [`priming_silence`]'s 512 samples (rounded up to a whole frame) at the stream format, then `S`.
+/// - `channels()` / `sample_rate()`: the stream format, which `S` (already [`for_output`]-wrapped) reports too.
+/// - `current_span_len()`: the remaining priming length while priming (bounded, so the mixer re-reads the
+///   format right after it), then `S`'s.
+/// - `total_duration()`: `S`'s.
+/// - `try_seek(pos)`: forwards to `S`; on success the remaining priming is dropped (the track starts at `pos`
+///   at once). A failed seek leaves the priming in place.
+///
+/// Use [`primed_for_output`] for the first track appended to a new `Player`/queue only. Chained tracks use
+/// plain [`for_output`], which is already sample-exact at the join.
+pub struct PrimedSource<S: Source> {
+    inner: S,
+    remaining: usize,
+    channels: ChannelCount,
+    rate: SampleRate,
+}
+
+impl<S: Source> PrimedSource<S> {
+    /// `channels` / `rate` must be the stream format, and `inner` must report exactly that format.
+    pub fn new(inner: S, channels: ChannelCount, rate: SampleRate) -> Self {
+        Self {
+            inner,
+            remaining: priming_samples(channels),
+            channels,
+            rate,
+        }
+    }
+
+    /// Priming samples still to be emitted.
+    pub fn priming_remaining(&self) -> usize {
+        self.remaining
+    }
+}
+
+impl<S: Source> Iterator for PrimedSource<S> {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if self.remaining > 0 {
+            self.remaining -= 1;
+            return Some(0.0);
+        }
+        self.inner.next()
+    }
+}
+
+impl<S: Source> Source for PrimedSource<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        if self.remaining > 0 {
+            Some(self.remaining)
+        } else {
+            self.inner.current_span_len()
+        }
+    }
+
+    fn channels(&self) -> ChannelCount {
+        self.channels
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        self.rate
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.inner.try_seek(pos)?;
+        self.remaining = 0;
+        Ok(())
+    }
+}
+
+/// [`for_output`] plus the priming silence in one source: the single call for the **first** track appended to a
+/// new `Player` / queue. See [`PrimedSource`] for why the priming is part of the track and not a separate source.
+pub fn primed_for_output<S: Source>(
+    source: S,
+    channels: ChannelCount,
+    rate: SampleRate,
+) -> PrimedSource<UniformSourceIterator<HqResample<S>>> {
+    PrimedSource::new(for_output(source, channels, rate), channels, rate)
 }

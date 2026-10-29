@@ -244,7 +244,10 @@ pub(crate) async fn try_resume_after_device_change(
     let effective_volume = (snap.base_volume * snap.gain_linear).clamp(0.0, 1.0);
     sink.set_volume(effective_volume);
     sink.pause();
-    if engine.gapless_enabled.load(Ordering::Relaxed) {
+    if let Some(fmt) = crate::fork_hires::stream_format(&engine) {
+        // Fork patch: primed and seek-safe, like the first track of `audio_play`.
+        sink.append(crate::fork_hires::first_source(ps.built.source, fmt));
+    } else if engine.gapless_enabled.load(Ordering::Relaxed) {
         let config = engine
             .stream_handle
             .lock()

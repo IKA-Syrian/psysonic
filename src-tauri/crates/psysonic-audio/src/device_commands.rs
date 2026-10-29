@@ -155,6 +155,9 @@ pub async fn audio_set_device(
     } else {
         state.device_default_rate
     };
+    // Fork patch: reopen at the new device's mix rate (no-op when disabled).
+    let open_rate =
+        crate::fork_hires::refresh_mix_rate(device_name.as_deref()).unwrap_or(open_rate);
 
     // Capture position and detach players before releasing the old stream. The
     // generation bump prevents the old progress task from reporting a false

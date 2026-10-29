@@ -21,6 +21,11 @@ export const commands = {
 	 *  then quits. Windows only (the other platforms keep their caches elsewhere).
 	 */
 	forkClearWebviewCache: () => typedError<null, string>(__TAURI_INVOKE("fork_clear_webview_cache")),
+	/**  Apply and persist the config. */
+	forkHiresSetConfig: (config: ForkHiResConfig) => typedError<null, string>(__TAURI_INVOKE("fork_hires_set_config", { config })),
+	/**  Decoded rates of the upcoming queue (store only). */
+	forkHiresSetQueueRates: (rates: number[]) => __TAURI_INVOKE<void>("fork_hires_set_queue_rates", { rates }),
+	forkHiresStatus: () => __TAURI_INVOKE<ForkHiResStatus>("fork_hires_status"),
 	/**  Min/max album years from the local track catalog (for Albums browse filter spinners). */
 	libraryGetCatalogYearBounds: (serverId: string) => typedError<CatalogYearBoundsDto, string>(__TAURI_INVOKE("library_get_catalog_year_bounds", { serverId })),
 	/**  Distinct album counts per track genre — same grouping as genre album browse. */
@@ -1610,6 +1615,41 @@ export type FlatpakUpdateInfo = {
 	tag: string,
 	body: string,
 };
+
+export type ForkHiResConfig = {
+	enabled: boolean,
+	policy: ForkPolicy,
+	/**  `None` = 192 000 Hz. */
+	ceilingHz: number | null,
+	resyncSilenceMs: number,
+	chunkFrames: number,
+};
+
+export type ForkHiResStatus = {
+	enabled: boolean,
+	policy: ForkPolicy,
+	ceilingHz: number,
+	/**  Rate of the open stream; `None` when closed. */
+	streamRateHz: number | null,
+	/**  The device's default (mixer) rate. */
+	mixRateHz: number,
+	/**  What the last `audio_play` through the fork engine announced; `None` before the first. */
+	lastFormat: ForkOutputFormat | null,
+};
+
+/**  Payload of the `fork:audio-output-format` event. */
+export type ForkOutputFormat = {
+	rateHz: number,
+	channels: number,
+	/**  The track's native rate when it differs from the stream rate. */
+	resampledFromHz: number | null,
+	policy: ForkPolicy,
+	/**  Always `"shared"` for now. */
+	backend: string,
+};
+
+/**  How the stream rate follows the queue. */
+export type ForkPolicy = "seamless" | "adaptive";
 
 export type FullImportRecoveryPhase = "prepared" | "databases-restored" | "committed";
 

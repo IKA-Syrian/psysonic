@@ -91,6 +91,9 @@ async fn reopen_output_stream(
         } else {
             engine.device_default_rate
         };
+        // Fork patch: reopen at the new device's mix rate (no-op when disabled).
+        let open_rate =
+            crate::fork_hires::refresh_mix_rate(device_name.as_deref()).unwrap_or(open_rate);
         let mut snapshot = {
             let cur = engine.current.lock().unwrap();
             let is_playing = cur.play_started.is_some() && cur.paused_at.is_none();

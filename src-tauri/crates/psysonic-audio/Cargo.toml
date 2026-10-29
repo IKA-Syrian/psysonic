@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 psysonic-core = { path = "../psysonic-core" }
 psysonic-analysis = { path = "../psysonic-analysis" }
+psysonic-fork-hires = { path = "../psysonic-fork-hires" } # Fork patch
 
 tauri = { version = "2" }
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
@@ -50,3 +51,4 @@ windows = { version = "0.62", features = [
 tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["rt", "time", "sync", "macros", "rt-multi-thread", "test-util"] }
 wiremock = { workspace = true }
+psysonic-fork-hires = { path = "../psysonic-fork-hires", features = ["testkit"] } # Fork patch
