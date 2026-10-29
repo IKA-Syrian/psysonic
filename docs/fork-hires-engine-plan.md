@@ -1,6 +1,6 @@
 # Fork hi-res mix engine: study and plan
 
-Status: **Phases 0–3 done (Phase 3 = shared mode, not yet tried in the app); Phase 5 UI in progress; branch `fork/hires-engine`** · Written 2026-10-29 against fork `main` at upstream 1.56.0.
+Status: **Phases 0–5 built (shared and exclusive, behind a setting); bit-perfect check and in-app hardware test pending; branch `fork/hires-engine`** · Written 2026-10-29 against fork `main` at upstream 1.56.0.
 
 Goal: crossfade, AutoDJ and gapless transitions between tracks with different sample rates (44.1 / 48 / 88.2 / 96 / 176.4 / 192 kHz) and bit depths (16 / 24-bit) **without downsampling, without truncating bit depth, and without being forced to 44.1 kHz**. Outside transitions, playback should be bit-perfect when no DSP is active.
 
@@ -380,31 +380,68 @@ Work on a branch (`fork/hires-engine`), and merge to `main` when each phase's ex
 - **Try it before the UI exists:** quit the app, create `%APPDATA%\dev.psysonic.player\fork-hires.json` containing `{"enabled":true,"policy":"seamless","ceilingHz":null,"resyncSilenceMs":250,"chunkFrames":1024}`, set Windows Sound settings → your device → Advanced → Default Format to 24-bit, 192000 Hz, then start the app. In shared mode the output rate is the Windows mix rate.
 
 ### Phase 4: WASAPI exclusive backend (Windows)
-- [ ] Add `wasapi = "0.26"` under `[target.'cfg(windows)'.dependencies]` in the fork crate. Check for `windows` crate duplication and the compile-time impact.
-- [ ] Map the device the user selected (existing `selected_device` keys, `dev_io` identity) to the WASAPI endpoint ID.
-- [ ] Format negotiation (a pure function, unit-tested with mocked caps): S32/24 > S24 > S16 > F32, ≥ the source depth, via `is_supported_exclusive_with_quirks`.
-- [ ] Ceiling fallback when the device lacks the ceiling rate: the highest supported rate ≤ the ceiling. For Native, the nearest **higher** supported rate, else the highest supported.
-- [ ] Render thread:
+- [x] Add `wasapi = "0.26"` under `[target.'cfg(windows)'.dependencies]` in the fork crate. Check for `windows` crate duplication and the compile-time impact.
+- [x] Map the device the user selected (existing `selected_device` keys, `dev_io` identity) to the WASAPI endpoint ID.
+- [x] Format negotiation (a pure function, unit-tested with mocked caps): S32/24 > S24 > S16 > F32, ≥ the source depth, via `is_supported_exclusive_with_quirks`.
+- [x] Ceiling fallback when the device lacks the ceiling rate: the highest supported rate ≤ the ceiling. For Native, the nearest **higher** supported rate, else the highest supported.
+- [x] Render thread:
   - event-driven;
   - MMCSS "Pro Audio";
   - period from `calculate_aligned_period_near` (≈ 10 ms default, configurable);
   - pulls `MixerSource` → formatter → render buffer;
   - counts underruns.
-- [ ] `OutputHandle` enum in `engine.rs` / `output_stream.rs`. `connect_new_player` and preview use `handle.mixer()`.
-- [ ] Rate switch: stop → release → re-initialize. Retry once on `AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED`. Add lead-in silence of `resyncSilenceMs` (default 250 ms).
-- [ ] Failures:
+- [x] `OutputHandle` enum in `engine.rs` / `output_stream.rs`. `connect_new_player` and preview use `handle.mixer()`.
+- [x] Rate switch: stop → release → re-initialize. Retry once on `AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED`. Add lead-in silence of `resyncSilenceMs` (default 250 ms).
+- [x] Failures:
   - `AUDCLNT_E_DEVICE_IN_USE` or `UNSUPPORTED_FORMAT` → fall back to shared mode, emit status, and show a toast.
   - Device unplugged or the default device changed → reuse the `device_watcher` flow.
 - [ ] The idle release (60 s) frees the exclusive device for other apps.
-- [ ] Bit-perfect gate wired up (Player volume exactly 1.0 when the gate holds), and the `bitPerfect` flag reported.
-- [ ] Debug-only CRC tap: compare the formatter's input against the decoded source during gate-on playback, and log mismatches.
+- [x] Bit-perfect gate wired up (Player volume exactly 1.0 when the gate holds), and the `bitPerfect` flag reported.
+- [x] Debug-only CRC tap: compare the formatter's input against the decoded source during gate-on playback, and log mismatches. Done as an opt-in tap (`PSYSONIC_FORK_CRC_TAP=1`, any build): it finds the track's content in the device output and compares hashes. Result shown in Settings diagnostics as "check: …". On the Steam virtual device (exclusive, S24, 48 kHz): **match (48000 frames)**.
 - **Exit:**
   - Exclusive playback at the 192 kHz ceiling (Seamless) and at native rates (Native).
   - The CRC tap shows bit-perfect output for at-ceiling tracks, and for every track under Native, with no DSP.
   - Every mixed-rate transition is seamless, including into late-added tracks.
 
+#### Phase 4 design (2026-10-29)
+**Hardware reality on the dev PC** (probed with the `wasapi` crate in exclusive mode, stereo):
+
+| Device | Exclusive formats accepted |
+|---|---|
+| Default endpoint (SteelSeries Sonar, virtual, 8 ch) | none: exclusive is impossible, always shared |
+| Arctis Nova Pro | S24-packed and S16 at 48 kHz only |
+| Steam speakers (virtual) | S24 and S16 at 44.1–192 kHz |
+
+No device accepted S32 with 24 valid bits, so S24-packed is a real requirement. On the Sonar and Nova Pro, the best possible result is what shared mode already gives (HQ resampling to 48 kHz); exclusive mode matters for DACs that accept higher rates.
+
+**Design decisions:**
+- **`wasapi` 0.26** (event-driven exclusive). It uses the same `windows 0.62.2` the workspace already has, so there's no duplication. COM objects are `!Send`, so all WASAPI work happens on the render thread.
+- **`OutputHandle` struct** (fork file `fork_output.rs`) replaces the raw `MixerDeviceSink` in `AudioEngine`. It keeps `.mixer()` and `.config()`, so callers don't change. The upstream diff is about 15 lines in `engine.rs`, `engine/output_stream.rs` and `lib.rs`; no coverage-gated files.
+- **Device identity:** cpal's stable device key is `wasapi:{endpoint id}`, so the WASAPI endpoint ID is the key without that prefix. Never match by name.
+- **Render thread:** a 10 ms period (`calculate_aligned_period_near`), MMCSS "Pro Audio", pulls `rodio::mixer` samples (an empty mixer means silence), formats them, writes them, and counts late wakes. Lead-in silence (`resyncSilenceMs`) is written at open, so position isn't affected.
+- **Bit-perfect gate** with no upstream edit: instead of touching `MASTER_HEADROOM` (0.891, used at about 9 sites), the formatter multiplies by `1/0.891` in f64, which should restore every 24-bit code exactly (to be proven by an exhaustive test). The gate requires volume 100 %, normalization off, EQ off, speed 1.0, no crossfade/preview/radio player, and stream rate = track rate.
+- **Failures:** device in use, unsupported format, or exclusive disabled → fall back to shared, mark it sticky per device, and tell the UI (`fallbackReason`). Unplug mid-play → reopen through the existing device-watcher path.
+- **Note:** radio and previews also play through the exclusive mixer (rodio's converter, never bit-perfect); the gate sees them.
+
+**Chunks:**
+1. Pure core: format negotiation, period maths, the gate, input gain with the exactness proof, and a render loop over a trait with a null sink.
+2. WASAPI backend (Windows only, not wired in).
+3. `OutputHandle` plumbing (the only upstream edits).
+4. Wire up: `backend` setting, planner `Backend::Exclusive`, caps cache, lead-in, sticky fallback, gate evaluator.
+5. Debug CRC tap, underrun counters and `bitPerfect` in status, then a hardware checklist.
+
+#### Phase 4 implementation notes (2026-10-29)
+- **Built:** a pure core (format negotiation, period maths, lock-free gate, render loop over a `RenderSink` trait), the WASAPI backend (`exclusive/wasapi_backend.rs`, render thread with MMCSS, endpoint registry, crash catch), `OutputHandle` (a struct with a `Copy` config, so no call site changed; +14/−6 upstream lines in `engine.rs`, `output_stream.rs`, `lib.rs`), and the wiring (`backend` setting, explicit endpoint ids, caps cache, planner `Backend::Exclusive`, sticky per-device fallback, gate evaluator, runtime-failure reopen).
+- **Proven:** undoing the 0.891 headroom in f64 restores all 16,777,216 24-bit codes exactly (S32/24 and S24-packed) and all 16-bit codes (S16). The render loop makes 0 allocations in steady state. The formatter costs 0.16–0.2 % of a 10 ms period at 192 kHz.
+- **Upstream chain is an identity with DSP off:** through the real `build_source` path (24-bit WAV, EQ off, speed 1.0, crossfade off), every sample matches the raw decode except the 5 ms anti-click fade-in at the start of each track (intentional; a test asserts it). The full path (chain, resampler passthrough, Player at 0.891, mixer, gate-on formatter) returns the file's exact 24-bit codes. So bit-perfect holds from 5 ms into each track.
+- **Review fixes:** an empty mixer latched the output into permanent silence (fixed: `None` is treated as 0.0 and polled again); a restarting per-output clock made old gate heartbeats look fresh (fixed: one process-wide clock); the `timeouts` counter could never move; `late_wakes` was measured in whole ms (now µs against the exact buffer length); every open-time error now falls back to shared; no dither on digital silence; `ExclusiveOutput` is `Send + Sync`.
+- **UI fix:** the settings section now edits the **saved** config (`status.config`), not the open stream's backend. Before, an Exclusive choice could be silently overwritten while the stream was shared.
+- **Lockfile:** adding `wasapi` makes Cargo 1.99 re-pick 13 stale dependency edges (`windows-sys` → 0.61.2, `tempfile` → `getrandom 0.4.3`). It's deterministic and inside every crate's declared range. After a sync conflict, take upstream's `Cargo.lock` and run any cargo command; the same result comes back.
+- **Steam virtual device:** it wakes on the 15.6 ms Windows timer, so its late-wake counts are meaningless. Real DACs must be checked in the app.
+- **Hardware test checklist (in the app):** (1) a 24/192 DAC with 44.1, 96 and 192 kHz tracks; (2) another app holding the device → fallback message; (3) unplug mid-play → reopen; (4) idle 60 s → another app can play → Psysonic resumes; (5) exclusive disabled in Windows → fallback; (6) a rate change with no clipped intro; (7) the badge shows "exclusive · bit-perfect" at 100 % volume with EQ off, and it drops when the volume or EQ changes; (8) the bit-perfect check reads "match".
+
 ### Phase 5: Frontend (fork-only files)
-- [ ] `ForkHiResEngineSection.tsx` in Settings → Audio, with these controls:
+- [x] `ForkHiResEngineSection.tsx` in Settings → Audio, with these controls:
   - enable (fork engine / legacy);
   - backend (shared / exclusive);
   - policy (Seamless / Adaptive);
@@ -413,14 +450,14 @@ Work on a branch (`fork/hires-engine`), and merge to `main` when each phase's ex
   - DAC resync silence;
   - dither.
 - [ ] The section also shows live status from `fork_hires_status`: device rates, current format, bit-perfect.
-- [ ] Persisted store `psysonic_fork_hires`. Push the config on change and at startup.
+- [x] Persisted store `psysonic_fork_hires`. Push the config on change and at startup. (Changed: Rust's `fork-hires.json` is the only store; the UI reads `fork_hires_status` and writes `fork_hires_set_config`.)
 - [ ] `forkHiResQueueSync.ts` (Adaptive policy only; build last):
   - subscribe to the playerStore queue and index;
   - the next N tracks' rates (decoded rate when known; `samplingRate` otherwise; skip transcoded streams whose rate is unknown);
   - debounced `fork_hires_set_queue_rates`.
-- [ ] `ForkOutputFormatBadge.tsx`: shows e.g. "192 kHz · 24-bit → 192 kHz · S32 exclusive · bit-perfect" from `fork:audio-output-format`.
-- [ ] When the fork engine is on, hide the legacy blend-rate picker and replace it with a note.
-- [ ] Vitest:
+- [x] `ForkOutputFormatBadge.tsx`: shows e.g. "192 kHz · 24-bit → 192 kHz · S32 exclusive · bit-perfect" from `fork:audio-output-format`.
+- [x] When the fork engine is on, hide the legacy blend-rate picker and replace it with a note.
+- [x] Vitest:
   - store and queue-rate computation;
   - the section renders and pushes its config;
   - mocks for the new commands and event;
