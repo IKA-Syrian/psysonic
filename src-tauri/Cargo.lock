@@ -4507,6 +4507,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "psysonic-fork-hires"
+version = "0.1.0"
+dependencies = [
+ "rodio",
+ "rubato",
+ "rustfft",
+]
+
+[[package]]
 name = "psysonic-integration"
 version = "1.56.0"
 dependencies = [

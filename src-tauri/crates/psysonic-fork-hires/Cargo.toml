@@ -1,0 +1,20 @@
+[package]
+name = "psysonic-fork-hires"
+# Fork-owned crate: its own version, so upstream's workspace version bumps never touch its lockfile entry.
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+# Test signals and quality metrics, for other crates' tests.
+testkit = ["dep:rustfft"]
+
+[dependencies]
+rodio = { version = "0.22", default-features = false }
+rubato = "=0.16.2"
+rustfft = { version = "6", optional = true }
+
+[dev-dependencies]
+rustfft = "6"
