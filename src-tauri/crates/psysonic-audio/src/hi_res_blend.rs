@@ -205,8 +205,9 @@ pub(crate) async fn spawn_outgoing_blend_resample(
     let fade_secs = snap.outgoing_fade_secs;
     if fade_secs > 0.0 {
         let rate = blend_rate;
-        let ch = state.current_channels.load(Ordering::Relaxed).max(2);
-        let fade_total = (fade_secs as f64 * rate as f64 * ch as f64) as u64;
+        // Fork patch: A's rebuilt channel count; `current_channels` is already B's.
+        let ch = (ps.built.output_channels as u32).max(2);
+        let fade_total = super::sink_swap::fade_out_total_samples(fade_secs, rate, ch);
         ps.built
             .fadeout_samples
             .store(fade_total.max(1), Ordering::SeqCst);

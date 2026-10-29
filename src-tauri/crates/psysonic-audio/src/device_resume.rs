@@ -303,6 +303,9 @@ pub(crate) async fn try_resume_after_device_change(
             crossfade_enabled: false,
             actual_fade_secs: 0.0,
             outgoing_fade_secs: 0.0,
+            // Fork patch: crossfade is off here, so the fade is never armed.
+            outgoing_rate: engine.current_sample_rate.load(Ordering::Relaxed),
+            outgoing_channels: engine.current_channels.load(Ordering::Relaxed),
             start_paused: false,
             streaming_seek: None,
         },

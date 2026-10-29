@@ -412,6 +412,11 @@ pub async fn audio_play(
     let resolved_format = built.resolved_format;
     let streaming_seek = built.streaming_seek.clone();
 
+    // Fork patch: capture A's rate/channels before B's overwrite them; the
+    // outgoing fade-out length must be computed in A's own sample domain.
+    let outgoing_rate = state.current_sample_rate.load(Ordering::Relaxed);
+    let outgoing_channels = state.current_channels.load(Ordering::Relaxed);
+
     // Store the actual output rate/channels for position calculation.
     state
         .current_sample_rate
@@ -696,6 +701,8 @@ pub async fn audio_play(
             crossfade_enabled,
             actual_fade_secs,
             outgoing_fade_secs,
+            outgoing_rate,
+            outgoing_channels,
             start_paused,
             streaming_seek,
         },

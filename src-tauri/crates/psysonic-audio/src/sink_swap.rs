@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter};
 
 use super::engine::{AudioCurrent, AudioEngine};
 use super::preserve_worker::StreamingSeekHandle;
@@ -97,19 +97,29 @@ pub(crate) struct SinkSwapInputs {
     /// Track A fade-out length (decoupled from B's `actual_fade_secs` fade-in).
     /// `0` ⇒ don't fade A — it rides its own recorded fade-out (scenario A).
     pub(crate) outgoing_fade_secs: f32,
+    // Fork patch: the OUTGOING track's rate/channels, captured before
+    // `current_sample_rate`/`current_channels` are overwritten with B's.
+    pub(crate) outgoing_rate: u32,
+    pub(crate) outgoing_channels: u32,
     pub(crate) start_paused: bool,
     pub(crate) streaming_seek: Option<StreamingSeekHandle>,
+}
+
+/// Interleaved sample count of a `fade_secs` fade at `rate` Hz x `channels`.
+pub(crate) fn fade_out_total_samples(fade_secs: f32, rate: u32, channels: u32) -> u64 {
+    (fade_secs as f64 * rate as f64 * channels as f64) as u64
 }
 
 /// Hand off the outgoing sink to a sample-level fade-out, then stop it after
 /// `cleanup_secs`. No-op when `fade_secs <= 0` (immediate stop).
 fn handoff_old_sink_fade_out(
-    state: &State<'_, AudioEngine>,
+    state: &AudioEngine,
     old_sink: Option<Arc<rodio::Player>>,
     old_fadeout_trigger: Option<Arc<AtomicBool>>,
     old_fadeout_samples: Option<Arc<AtomicU64>>,
     fade_secs: f32,
     cleanup_secs: f32,
+    (outgoing_rate, outgoing_channels): (u32, u32),
 ) {
     let Some(old) = old_sink else {
         return;
@@ -118,9 +128,8 @@ fn handoff_old_sink_fade_out(
         old.stop();
         return;
     }
-    let rate = state.current_sample_rate.load(Ordering::Relaxed);
-    let ch = state.current_channels.load(Ordering::Relaxed);
-    let fade_total = (fade_secs as f64 * rate as f64 * ch as f64) as u64;
+    // Fork patch: A's own rate, not `state.current_sample_rate` (already B's).
+    let fade_total = fade_out_total_samples(fade_secs, outgoing_rate, outgoing_channels);
 
     if let (Some(trigger), Some(samples)) = (old_fadeout_trigger, old_fadeout_samples) {
         samples.store(fade_total.max(1), Ordering::SeqCst);
@@ -142,7 +151,7 @@ fn handoff_old_sink_fade_out(
 /// sink: trigger sample-level fade-out (crossfade enabled) or stop it
 /// immediately (hard cut). The fade-out is handed off to a small spawned
 /// task that drops the old sink ~`actual_fade_secs + 0.5 s` later.
-pub(crate) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapInputs) {
+pub(crate) fn swap_in_new_sink(state: &AudioEngine, inputs: SinkSwapInputs) {
     let SinkSwapInputs {
         generation,
         sink,
@@ -154,6 +163,8 @@ pub(crate) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapI
         crossfade_enabled,
         actual_fade_secs,
         outgoing_fade_secs,
+        outgoing_rate,
+        outgoing_channels,
         start_paused,
         streaming_seek,
     } = inputs;
@@ -196,6 +207,7 @@ pub(crate) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapI
                 old_fadeout_samples,
                 outgoing_fade_secs,
                 actual_fade_secs.max(outgoing_fade_secs) + 0.5,
+                (outgoing_rate, outgoing_channels),
             );
         } else if let Some(old) = old_sink {
             // Prep already volume-ducked A; scenario-A keeps sample gain at 1.0
@@ -220,3 +232,7 @@ pub(crate) fn swap_in_new_sink(state: &State<'_, AudioEngine>, inputs: SinkSwapI
         .interrupt_outgoing_duck_active
         .store(false, Ordering::Relaxed);
 }
+
+#[cfg(test)]
+#[path = "sink_swap_tests.rs"]
+mod tests;
