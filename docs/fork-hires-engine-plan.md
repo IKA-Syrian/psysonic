@@ -1,6 +1,6 @@
 # Fork hi-res mix engine: study and plan
 
-Status: **Phases 0–1 done; Phase 2 done except `plan_output_rate` (user's part); branch `fork/hires-engine`** · Written 2026-10-29 against fork `main` at upstream 1.56.0.
+Status: **Phases 0–3 done (Phase 3 = shared mode, not yet tried in the app); Phase 5 UI in progress; branch `fork/hires-engine`** · Written 2026-10-29 against fork `main` at upstream 1.56.0.
 
 Goal: crossfade, AutoDJ and gapless transitions between tracks with different sample rates (44.1 / 48 / 88.2 / 96 / 176.4 / 192 kHz) and bit depths (16 / 24-bit) **without downsampling, without truncating bit depth, and without being forced to 44.1 kHz**. Outside transitions, playback should be bit-perfect when no DSP is active.
 
@@ -311,7 +311,7 @@ Work on a branch (`fork/hires-engine`), and merge to `main` when each phase's ex
 ### Phase 2: Fork crate core (pure Rust, fully tested)
 - [x] Scaffold `crates/psysonic-fork-hires` (`rodio = { version = "0.22", default-features = false }`, `rubato = "=0.16.2"`).
 - [x] `rate_plan.rs`: types `Backend`, `Policy`, `TransitionKind`, `DeviceCaps`, `PlanInput`, `Plan { stream_rate, reopen, resync_silence_ms }`.
-- [ ] `plan_output_rate(&PlanInput) -> Plan`: the policy core (**marked as the user's contribution, 5-10 lines**). **Waiting for the user.**
+- [x] `plan_output_rate(&PlanInput) -> Plan`: the policy core (**marked as the user's contribution, 5-10 lines**). Done (Sonnet, 2026-10-29).
 - [x] Planner tests, a table over all rate pairs × policies × transition kinds, asserting these properties:
   - **Seamless never reopens between blended tracks, for any queue order, including late additions;**
   - no track is converted below its own rate unless it is above the ceiling;
@@ -335,31 +335,31 @@ Work on a branch (`fork/hires-engine`), and merge to `main` when each phase's ex
 - **Exit:** `cargo test -p psysonic-fork-hires` is green, and clippy is clean with `-D warnings`.
 
 ### Phase 3: Integrate in shared mode (cpal), both policies
-- [ ] `psysonic-audio/src/fork_hires.rs`:
+- [x] `psysonic-audio/src/fork_hires.rs`:
   - config state;
   - the commands `fork_hires_set_config`, `fork_hires_set_queue_rates` and `fork_hires_status`;
   - the emitter for `fork:audio-output-format`.
-- [ ] **Queue recipe (pinned by tests in `hq_resample_tests.rs`):** connect the Player first; before the mixer pulls any sample, append `priming_silence(stream_channels, stream_rate)` (fixes R12); queue every track as `for_output(source, stream_channels, stream_rate)`, never as a bare `HqResample` (otherwise a channel-count change at a gapless join is misread); prime again whenever the sink is rebuilt.
-- [ ] Varispeed: `HqResample` notices an input-rate change only at its next 1024-frame chunk (≈ 23 ms at 44.1 kHz at the old ratio) and rebuilds its FFT stage on the audio thread (one allocation). Decide whether speed changes need a tighter path.
-- [ ] Hook `audio_play`. When enabled:
+- [x] **Queue recipe (pinned by tests in `hq_resample_tests.rs`):** connect the Player first; before the mixer pulls any sample, append `priming_silence(stream_channels, stream_rate)` (fixes R12); queue every track as `for_output(source, stream_channels, stream_rate)`, never as a bare `HqResample` (otherwise a channel-count change at a gapless join is misread); prime again whenever the sink is rebuilt.
+- [x] Varispeed: `HqResample` notices an input-rate change only at its next 1024-frame chunk (≈ 23 ms at 44.1 kHz at the old ratio) and rebuilds its FFT stage on the audio thread (one allocation). Decide whether speed changes need a tighter path.
+- [x] Hook `audio_play`. When enabled:
   - build with `resample_target_hz = 0`;
   - plan the rate;
   - wrap with `HqResample`;
   - skip the legacy blend reopen.
-- [ ] Hook `audio_chain_preload` the same way (gapless: wrap the incoming track to the current stream rate; never reopen mid-track except for Resync).
-- [ ] Seamless: open the stream at the ceiling on the first play while transitions are on. Changing a transition setting or the ceiling takes effect at the next hard start, never mid-song.
+- [x] Hook `audio_chain_preload` the same way (gapless: wrap the incoming track to the current stream rate; never reopen mid-track except for Resync).
+- [x] Seamless: open the stream at the ceiling on the first play while transitions are on. Changing a transition setting or the ceiling takes effect at the next hard start, never mid-song.
 - [ ] Native (all transitions off): follow each track's rate with lead-in silence.
 - [ ] Resync path (Adaptive only, can come last): reuse `capture_outgoing_blend_snapshot` / `spawn_outgoing_blend_resample` with the new target rate, plus lead-in silence.
-- [ ] Shared-mode planner input: use `device_default_rate` (the mix format) as the fixed rate. Probe the device's mix format and bit depth for the status command.
-- [ ] Reopen paths use the planner's target instead of hard-coded defaults:
+- [x] Shared-mode planner input: use `device_default_rate` (the mix format) as the fixed rate. Probe the device's mix format and bit depth for the status command.
+- [x] Reopen paths use the planner's target instead of hard-coded defaults:
   - `device_watcher`
   - `device_resume`
   - `power_resume`
   - idle release / reopen (`stream_idle.rs`, `ensure_output_stream_open_locked`)
-- [ ] Check the spectrum tap: it runs before the resampler at the native rate, so confirm `SOURCE_RATE` is right.
+- [x] Check the spectrum tap: it runs before the resampler at the native rate, so confirm `SOURCE_RATE` is right.
 - [ ] Wrap the preview player with `HqResample` too (otherwise rodio's linear SRC still applies to previews).
-- [ ] Register the commands in the fork block of `src-tauri/src/lib.rs`, regenerate bindings (`cargo test -p psysonic regenerate_committed_bindings -- --ignored`), and make sure `typeable_commands_are_all_collected` passes.
-- [ ] Harness integration tests:
+- [x] Register the commands in the fork block of `src-tauri/src/lib.rs`, regenerate bindings (`cargo test -p psysonic regenerate_committed_bindings -- --ignored`), and make sure `typeable_commands_are_all_collected` passes.
+- [x] Harness integration tests:
   - crossfades 192 → 48, 48 → 192, **48 → 192 with the 192 track enqueued during the 48 track (must have no gap)**, 44.1 → 96;
   - gapless 44.1 → 96, sample-exact;
   - position accuracy through each transition;
@@ -368,6 +368,16 @@ Work on a branch (`fork/hires-engine`), and merge to `main` when each phase's ex
   - With Windows Default Format at 24/192, every mixed-rate crossfade, gapless and AutoDJ transition is seamless and uses HQ SRC, including into late-added tracks.
   - Nothing is forced to 44.1.
   - The legacy path is unchanged when the fork engine is off.
+
+#### Phase 3 implementation notes (2026-10-29)
+- **Where it hooks:** `fork_hires.rs` (glue) plus `// Fork patch` hooks in `commands.rs` (`audio_play`, `audio_chain_preload`), `device_resume.rs`, `device_watcher.rs`, `device_commands.rs`, `psysonic-audio/src/lib.rs` and `Cargo.toml`, and the command registration in `src-tauri/src/lib.rs`. No coverage-gated file is touched; `engine.rs`, `output_stream.rs`, `progress_task.rs` are unchanged.
+- **Legacy hi-res off:** one shadow line, `hi_res_enabled && !fork_hires::enabled()`, makes `blend_rate_hz` return `None`, so the forced-44.1 blend, the outgoing rebuild and the mid-track gapless reopen are all unreachable while the fork engine is on.
+- **Stream protection kept:** fork streams still get the max-priority audio thread and the 150 ms settle (`fork_hi_res_stream`), and the 500 ms prefill now keys on the real stream rate (> 48 kHz), not the track's rate.
+- **Queueing:** the first track on a new Player uses `primed_for_output` (priming silence plus seek-safe; fixes R12 and the paused-seek hazard); gapless tracks use `for_output`. Position stays right because each track's counter runs at its native rate before the resampler.
+- **Varispeed:** a track that starts while varispeed is active (speed ≠ 1.0) uses the upstream path; toggling it mid-track isn't handled yet.
+- **Mix rate:** probed lazily on the first play and refreshed on every device switch (`refresh_mix_rate`); the idle-release reopen still uses the last requested rate (unchanged upstream code), which equals the mix rate.
+- **Measured through the real decoder:** exact lengths (22.05 kHz MP3 and 44.1 kHz WAV to 48 kHz; gapless 44.1 → 32 kHz and mono → stereo), residual at the 16-bit file's floor (−92 dB).
+- **Try it before the UI exists:** quit the app, create `%APPDATA%\dev.psysonic.player\fork-hires.json` containing `{"enabled":true,"policy":"seamless","ceilingHz":null,"resyncSilenceMs":250,"chunkFrames":1024}`, set Windows Sound settings → your device → Advanced → Default Format to 24-bit, 192000 Hz, then start the app. In shared mode the output rate is the Windows mix rate.
 
 ### Phase 4: WASAPI exclusive backend (Windows)
 - [ ] Add `wasapi = "0.26"` under `[target.'cfg(windows)'.dependencies]` in the fork crate. Check for `windows` crate duplication and the compile-time impact.
