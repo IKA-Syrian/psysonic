@@ -18,3 +18,12 @@ rustfft = { version = "6", optional = true }
 
 [dev-dependencies]
 rustfft = "6"
+
+[target.'cfg(windows)'.dependencies]
+# Both already in the workspace lockfile at windows 0.62.x; the feature set is the minimum the backend uses.
+wasapi = "0.26"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Threading",
+] }

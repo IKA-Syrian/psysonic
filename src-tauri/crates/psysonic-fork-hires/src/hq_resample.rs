@@ -22,11 +22,17 @@
 //!   otherwise ignored (the construction-time count keeps being read).
 
 use std::num::{NonZeroU16, NonZeroU32};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rodio::source::{SeekError, UniformSourceIterator, Zero};
 use rodio::{ChannelCount, SampleRate, Source};
 use rubato::{FftFixedIn, Resampler};
+
+/// Whether the segment that is currently audible passes through (input rate == output rate). Set on the first
+/// `next()` of every segment (construction, seek, rate change), not at construction, because chained tracks are
+/// built before they are audible. Process-global: the last segment to start playing wins.
+pub static PASSTHROUGH_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub const DEFAULT_CHUNK_FRAMES: usize = 1024;
 /// FFT sub-chunks per input chunk; 1 gives the longest transform and the sharpest filter.
@@ -66,6 +72,8 @@ pub struct HqResample<S: Source> {
     /// Position inside the current frame while passing through.
     pt_phase: usize,
     done: bool,
+    /// Whether the current segment has published its passthrough state yet.
+    announced: bool,
 }
 
 impl<S: Source> HqResample<S> {
@@ -86,6 +94,7 @@ impl<S: Source> HqResample<S> {
             limit: u64::MAX,
             pt_phase: 0,
             done: false,
+            announced: false,
             inner,
         };
         let rate = this.inner.sample_rate().get();
@@ -134,6 +143,7 @@ impl<S: Source> HqResample<S> {
         self.limit = u64::MAX;
         self.pt_phase = 0;
         self.done = false;
+        self.announced = false;
     }
 
     fn enter_drain(&mut self, inner_ended: bool) {
@@ -243,6 +253,10 @@ impl<S: Source> Iterator for HqResample<S> {
                         continue;
                     }
                 }
+                if !self.announced {
+                    self.announced = true;
+                    PASSTHROUGH_ACTIVE.store(true, Ordering::Relaxed);
+                }
                 let s = self.inner.next();
                 if s.is_some() {
                     self.pt_phase = (self.pt_phase + 1) % self.ch();
@@ -250,6 +264,10 @@ impl<S: Source> Iterator for HqResample<S> {
                 return s;
             };
             if self.out_pos < self.out_len && self.emitted < self.limit {
+                if !self.announced {
+                    self.announced = true;
+                    PASSTHROUGH_ACTIVE.store(false, Ordering::Relaxed);
+                }
                 let s = stage.out_bufs[self.ch_cursor][self.out_pos];
                 self.ch_cursor += 1;
                 if self.ch_cursor == self.channels.get() as usize {

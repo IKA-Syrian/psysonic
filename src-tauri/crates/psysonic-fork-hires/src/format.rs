@@ -103,6 +103,7 @@ pub struct Formatter {
     limiter: bool,
     rng: Rng,
     limited: u64,
+    gain: f64,
 }
 
 impl Formatter {
@@ -120,6 +121,7 @@ impl Formatter {
             limiter: true,
             rng: Rng::new(seed),
             limited: 0,
+            gain: 1.0,
         }
     }
 
@@ -138,6 +140,13 @@ impl Formatter {
         self.limiter = on;
     }
 
+    /// Linear gain applied to every input sample (as `x as f64 * gain`) before the limiter and the scaling to
+    /// integer codes. Default 1.0, which leaves all output (including `F32`) bit-identical to no gain at all.
+    /// The exclusive backend uses `1 / MASTER_HEADROOM` to undo rodio's fixed headroom attenuation.
+    pub fn set_input_gain(&mut self, gain: f64) {
+        self.gain = gain;
+    }
+
     /// Samples the limiter has modified so far.
     pub fn limited_samples(&self) -> u64 {
         self.limited
@@ -154,9 +163,9 @@ impl Formatter {
             out.len()
         );
         for (&x, dst) in input.iter().zip(out.chunks_exact_mut(width)) {
-            let x = self.limit(x);
+            let x = self.limit(x as f64 * self.gain);
             match self.format {
-                OutputFormat::F32 => dst.copy_from_slice(&x.to_le_bytes()),
+                OutputFormat::F32 => dst.copy_from_slice(&(x as f32).to_le_bytes()),
                 OutputFormat::S16 => dst.copy_from_slice(&(self.code(x, 16) as i16).to_le_bytes()),
                 OutputFormat::S24Packed => {
                     dst.copy_from_slice(&self.code(x, 24).to_le_bytes()[..3])
@@ -170,19 +179,20 @@ impl Formatter {
         total
     }
 
-    fn limit(&mut self, x: f32) -> f32 {
-        if self.limiter && x.abs() > LIMITER_THRESHOLD {
+    /// Works in f64 so the input gain loses no precision; the limiter itself runs in f32.
+    fn limit(&mut self, x: f64) -> f64 {
+        if self.limiter && x.abs() > LIMITER_THRESHOLD as f64 {
             self.limited += 1;
-            soft_limit(x)
+            soft_limit(x as f32) as f64
         } else {
             x
         }
     }
 
     /// Rounded, clamped integer code on a `bits`-deep signed grid.
-    fn code(&mut self, x: f32, bits: u32) -> i32 {
+    fn code(&mut self, x: f64, bits: u32) -> i32 {
         let scale = (1u64 << (bits - 1)) as f64;
-        let mut v = x as f64 * scale;
+        let mut v = x * scale;
         if self.dither {
             v += self.rng.uniform() + self.rng.uniform();
         }

@@ -1,6 +1,7 @@
 //! The fork's hi-res mix engine. In Phase 0 it only holds the test kit and the
 //! baseline tests that pin down what rodio does to audio today.
 
+pub mod exclusive;
 pub mod format;
 pub mod hq_resample;
 pub mod rate_plan;
